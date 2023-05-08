@@ -1,6 +1,7 @@
 package protocol
 
 import (
+	"bufio"
 	"bytes"
 	"encoding/binary"
 	"errors"
@@ -9,6 +10,17 @@ import (
 	"strconv"
 	"unicode/utf16"
 )
+
+// Reads a specific packet and unmarshals the data
+func ReadPacket(reader *bufio.Reader, expectedId byte, v any) error {
+	if b, err := reader.ReadByte(); err != nil {
+		return err
+	} else if b != expectedId {
+		return errors.New("unexpected id")
+	}
+
+	return Unmarshal(reader, v)
+}
 
 // Decodes a struct's fields from a reader in the order they are declared
 func Unmarshal(reader io.Reader, v any) error {

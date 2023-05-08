@@ -98,20 +98,20 @@ func (server *Server) acceptLoop(listener net.Listener) {
 // player
 func handleConnection(reader *bufio.Reader, writer io.Writer) (string, error) {
 	var handshake protocol.Handshake
-	if err := readPacket(reader, protocol.HandshakeId, &handshake); err != nil {
+	if err := protocol.ReadPacket(reader, protocol.HandshakeId, &handshake); err != nil {
 		return "", err
 	}
 
 	// Legacy auth is no longer supported, so servers always respond with
 	// offline mode handshake, which is "-" for the username.
-	if err := writePacket(writer, protocol.HandshakeId, &protocol.Handshake{
+	if _, err := writer.Write(protocol.Marshal(protocol.HandshakeId, &protocol.Handshake{
 		Username: "-",
-	}); err != nil {
+	})); err != nil {
 		return "", err
 	}
 
 	var login protocol.Login
-	if err := readPacket(reader, protocol.LoginId, &login); err != nil {
+	if err := protocol.ReadPacket(reader, protocol.LoginId, &login); err != nil {
 		return "", err
 	}
 
@@ -124,23 +124,6 @@ func handleConnection(reader *bufio.Reader, writer io.Writer) (string, error) {
 	}
 
 	return handshake.Username, nil
-}
-
-// Reads a specific packet and unmarshals the data
-func readPacket(reader *bufio.Reader, expectedId byte, v any) error {
-	if b, err := reader.ReadByte(); err != nil {
-		return err
-	} else if b != expectedId {
-		return errors.New("unexpected id")
-	}
-
-	return protocol.Unmarshal(reader, v)
-}
-
-// Marshals and writes a packet
-func writePacket(writer io.Writer, packetId byte, v any) error {
-	_, err := writer.Write(protocol.Marshal(protocol.HandshakeId, v))
-	return err
 }
 
 func (server *Server) addPlayer(reader *bufio.Reader, conn net.Conn, username string) {
