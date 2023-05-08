@@ -97,10 +97,11 @@ func readString(reader io.Reader, maxLen uint16) (string, error) {
 
 // Writes a string encoded according to the Minecraft protocol
 func writeString(writer io.Writer, str string) error {
-	if err := binary.Write(writer, binary.BigEndian, int16(len(str))); err != nil {
+	data := utf16.Encode([]rune(str))
+
+	if err := binary.Write(writer, binary.BigEndian, int16(len(data))); err != nil {
 		return err
 	}
 
-	data := utf16.Encode([]rune(str))
 	return binary.Write(writer, binary.BigEndian, data)
 }
