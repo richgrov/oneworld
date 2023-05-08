@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"net"
 	"sync"
 	"time"
@@ -14,6 +15,7 @@ import (
 
 const protocolVersion = 14
 const ticksPerSecond = 20
+const messageQueueBacklog = 16
 
 type Server struct {
 	listener net.Listener
@@ -22,11 +24,24 @@ type Server struct {
 	// All running server processes will add to this wait group. When .Wait()
 	// returns, all server processes have stopped.
 	shutdownQueue sync.WaitGroup
+	// Functions added to this channel will be invoked from the goroutine of the
+	// main tick loop.
+	messageQueue chan func()
+
+	// Below two variables have no server use. Only sent to client
+	noiseSeed int64
+	dimension Dimension
+
+	entities     map[int32]Entity
+	nextEntityId int32
 }
 
 // Creates a new server instance. The tick loop is started in the background,
 // meaining this function will not block.
-func NewServer(address string) (*Server, error) {
+//
+// `noiseSeed` is only used by the client to calculate biome colors.
+// `dimension` is also only used by the client.
+func NewServer(address string, noiseSeed int64, dimension Dimension) (*Server, error) {
 	listener, err := net.Listen("tcp", address)
 	if err != nil {
 		return nil, err
@@ -36,6 +51,13 @@ func NewServer(address string) (*Server, error) {
 		listener:        listener,
 		tickLoopStopper: make(chan byte),
 		shutdownQueue:   sync.WaitGroup{},
+		messageQueue:    make(chan func(), messageQueueBacklog),
+
+		noiseSeed: noiseSeed,
+		dimension: dimension,
+
+		entities:     make(map[int32]Entity),
+		nextEntityId: 0,
 	}
 
 	go server.acceptLoop(listener)
@@ -65,7 +87,9 @@ func (server *Server) acceptLoop(listener net.Listener) {
 				return
 			}
 
-			println(username, "logged in")
+			server.messageQueue <- func() {
+				server.addPlayer(reader, conn, username)
+			}
 		}()
 	}
 }
@@ -119,6 +143,20 @@ func writePacket(writer io.Writer, packetId byte, v any) error {
 	return err
 }
 
+func (server *Server) addPlayer(reader *bufio.Reader, conn net.Conn, username string) {
+	id := server.newEntityId()
+	player := newPlayer(id, reader, conn, username)
+	server.entities[id] = player
+
+	player.queuePacket(protocol.Marshal(protocol.LoginId, &protocol.Login{
+		ProtocolVersion: id,
+		MapSeed:         server.noiseSeed,
+		Dimension:       byte(server.dimension),
+	}))
+
+	println(username, "logged in")
+}
+
 // Runs the server's main tick loop
 func (server *Server) tickLoop() {
 	server.shutdownQueue.Add(1)
@@ -128,12 +166,29 @@ func (server *Server) tickLoop() {
 	defer ticker.Stop()
 
 	for {
+		// Wait until next tick
 		select {
 		case <-ticker.C:
 		case <-server.tickLoopStopper:
 			return
 		}
+
+		// Drain message queue
+		for message := range server.messageQueue {
+			message()
+		}
 	}
+}
+
+// Gets the next available entity ID
+func (server *Server) newEntityId() int32 {
+	id := server.nextEntityId
+	if id == math.MaxInt32 {
+		panic("entity IDs exhausted")
+	}
+
+	server.nextEntityId++
+	return id
 }
 
 // Stops all running server processes. The function will block until all

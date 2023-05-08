@@ -68,6 +68,15 @@ func Marshal(packetId byte, v any) []byte {
 	for i := 0; i < val.NumField(); i++ {
 		field := val.Field(i)
 		switch field.Kind() {
+		case reflect.Uint8:
+			buf.WriteByte(byte(field.Uint()))
+
+		case reflect.Int32:
+			binary.Write(buf, binary.BigEndian, int32(field.Int()))
+
+		case reflect.Int64:
+			binary.Write(buf, binary.BigEndian, field.Int())
+
 		case reflect.String:
 			writeString(buf, field.String())
 		}

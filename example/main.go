@@ -8,7 +8,7 @@ import (
 )
 
 func main() {
-	server, err := oneworld.NewServer("localhost:25565")
+	server, err := oneworld.NewServer("localhost:25565", 0, oneworld.Overworld)
 	if err != nil {
 		panic(err)
 	}
