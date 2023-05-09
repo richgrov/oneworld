@@ -7,9 +7,11 @@ import (
 	"io"
 	"math"
 	"net"
+	"path/filepath"
 	"sync"
 	"time"
 
+	"github.com/richgrov/oneworld/internal/level"
 	"github.com/richgrov/oneworld/internal/protocol"
 )
 
@@ -28,9 +30,15 @@ type Server struct {
 	// main tick loop.
 	messageQueue chan func()
 
+	worldDir string
+
 	// Below two variables have no server use. Only sent to client
 	noiseSeed int64
 	dimension Dimension
+
+	spawnX int32
+	spawnY int32
+	spawnZ int32
 
 	entities     map[int32]Entity
 	nextEntityId int32
@@ -39,10 +47,14 @@ type Server struct {
 // Creates a new server instance. The tick loop is started in the background,
 // meaining this function will not block.
 //
-// `noiseSeed` is only used by the client to calculate biome colors.
-// `dimension` is also only used by the client.
-func NewServer(address string, noiseSeed int64, dimension Dimension) (*Server, error) {
+// `dimension` is only used by the client and has no impact on server behavior.
+func NewServer(address string, worldDir string, dimension Dimension) (*Server, error) {
 	listener, err := net.Listen("tcp", address)
+	if err != nil {
+		return nil, err
+	}
+
+	data, err := level.ReadLevelData(filepath.Join(worldDir, "level.dat"))
 	if err != nil {
 		return nil, err
 	}
@@ -53,8 +65,14 @@ func NewServer(address string, noiseSeed int64, dimension Dimension) (*Server, e
 		shutdownQueue:   sync.WaitGroup{},
 		messageQueue:    make(chan func(), messageQueueBacklog),
 
-		noiseSeed: noiseSeed,
+		worldDir: worldDir,
+
+		noiseSeed: data.RandomSeed,
 		dimension: dimension,
+
+		spawnX: data.SpawnX,
+		spawnY: data.SpawnY,
+		spawnZ: data.SpawnZ,
 
 		entities:     make(map[int32]Entity),
 		nextEntityId: 0,
@@ -135,6 +153,14 @@ func (server *Server) addPlayer(reader *bufio.Reader, conn net.Conn, username st
 		ProtocolVersion: id,
 		MapSeed:         server.noiseSeed,
 		Dimension:       byte(server.dimension),
+	}))
+
+	player.queuePacket(protocol.Marshal(protocol.PositionId, &protocol.Position{
+		X:        float64(server.spawnX),
+		Y:        float64(server.spawnY),
+		Stance:   0,
+		Z:        float64(server.spawnZ),
+		OnGround: false,
 	}))
 
 	println(username, "logged in")
