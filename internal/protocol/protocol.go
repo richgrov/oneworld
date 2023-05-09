@@ -1,7 +1,6 @@
 package protocol
 
 import (
-	"bufio"
 	"bytes"
 	"encoding/binary"
 	"errors"
@@ -12,10 +11,11 @@ import (
 )
 
 // Reads a specific packet and unmarshals the data
-func ReadPacket(reader *bufio.Reader, expectedId byte, v any) error {
-	if b, err := reader.ReadByte(); err != nil {
+func ReadPacket(reader io.Reader, expectedId byte, v any) error {
+	var b [1]byte
+	if _, err := reader.Read(b[:]); err != nil {
 		return err
-	} else if b != expectedId {
+	} else if b[0] != expectedId {
 		return errors.New("unexpected id")
 	}
 
