@@ -30,6 +30,14 @@ func Unmarshal(reader io.Reader, v any) error {
 	for i := 0; i < val.NumField(); i++ {
 		field := val.Field(i)
 		switch field.Kind() {
+		case reflect.Bool:
+			var buf [1]byte
+			if _, err := reader.Read(buf[:]); err != nil {
+				return err
+			}
+			// Minecraft protocol considers any value that is not zero as true
+			field.SetBool(buf[0] != 0)
+
 		case reflect.Uint8:
 			var buf [1]byte
 			if _, err := reader.Read(buf[:]); err != nil {
@@ -50,6 +58,13 @@ func Unmarshal(reader io.Reader, v any) error {
 				return err
 			}
 			field.SetInt(i)
+
+		case reflect.Float64:
+			var f float64
+			if err := binary.Read(reader, binary.BigEndian, &f); err != nil {
+				return err
+			}
+			field.SetFloat(f)
 
 		case reflect.String:
 			tag := ty.Field(i).Tag.Get("maxLen")
@@ -80,6 +95,13 @@ func Marshal(packetId byte, v any) []byte {
 	for i := 0; i < val.NumField(); i++ {
 		field := val.Field(i)
 		switch field.Kind() {
+		case reflect.Bool:
+			if field.Bool() {
+				buf.WriteByte(1)
+			} else {
+				buf.WriteByte(0)
+			}
+
 		case reflect.Uint8:
 			buf.WriteByte(byte(field.Uint()))
 
@@ -88,6 +110,9 @@ func Marshal(packetId byte, v any) []byte {
 
 		case reflect.Int64:
 			binary.Write(buf, binary.BigEndian, field.Int())
+
+		case reflect.Float64:
+			binary.Write(buf, binary.BigEndian, field.Float())
 
 		case reflect.String:
 			writeString(buf, field.String())

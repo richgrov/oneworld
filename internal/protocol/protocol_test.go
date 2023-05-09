@@ -10,10 +10,11 @@ import (
 )
 
 type TestPacket struct {
-	Field1 byte
-	Field2 int32
-	Field3 int64
-	Field4 string `maxLen:"64"`
+	Bool   bool
+	Byte   byte
+	I32    int32
+	I64    int64
+	String string `maxLen:"64"`
 }
 
 func TestRead(t *testing.T) {
@@ -38,10 +39,11 @@ func TestMarshal(t *testing.T) {
 	// Packet should be encoded/decoded OK
 	const packetId = 2
 	packet := &TestPacket{
-		Field1: 10,
-		Field2: 100100,
-		Field3: 100100100100,
-		Field4: "hello",
+		Bool:   true,
+		Byte:   10,
+		I32:    100100,
+		I64:    100100100100,
+		String: "hello",
 	}
 
 	encoded := bytes.NewBuffer(protocol.Marshal(packetId, packet))
@@ -70,7 +72,7 @@ func TestStrings(t *testing.T) {
 
 	for _, str := range testStrings {
 		packet := &TestPacket{
-			Field4: str,
+			String: str,
 		}
 
 		encoded := bytes.NewBuffer(protocol.Marshal(0, packet))
@@ -88,7 +90,7 @@ func TestStrings(t *testing.T) {
 
 	// String that is too long should return error
 	packet := &TestPacket{
-		Field4: strings.Repeat("a", 100),
+		String: strings.Repeat("a", 100),
 	}
 
 	encoded := bytes.NewBuffer(protocol.Marshal(0, packet))
@@ -96,6 +98,6 @@ func TestStrings(t *testing.T) {
 
 	var decoded TestPacket
 	if err := protocol.Unmarshal(encoded, &decoded); err == nil {
-		t.Errorf("unmarshal should return error, but got '%s'", decoded.Field4)
+		t.Errorf("unmarshal should return error, but got '%s'", decoded.String)
 	}
 }
