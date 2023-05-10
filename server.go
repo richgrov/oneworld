@@ -191,6 +191,11 @@ func (server *Server) tickLoop() {
 				break messageQueue
 			}
 		}
+
+		// Tick entities
+		for _, entity := range server.entities {
+			entity.Tick()
+		}
 	}
 }
 

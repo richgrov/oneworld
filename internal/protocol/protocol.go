@@ -59,6 +59,13 @@ func Unmarshal(reader io.Reader, v any) error {
 			}
 			field.SetInt(i)
 
+		case reflect.Float32:
+			var f float32
+			if err := binary.Read(reader, binary.BigEndian, &f); err != nil {
+				return err
+			}
+			field.SetFloat(float64(f))
+
 		case reflect.Float64:
 			var f float64
 			if err := binary.Read(reader, binary.BigEndian, &f); err != nil {

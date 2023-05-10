@@ -2,6 +2,7 @@ package oneworld
 
 import (
 	"bufio"
+	"fmt"
 	"net"
 
 	"github.com/richgrov/oneworld/internal/level"
@@ -16,6 +17,7 @@ type Player struct {
 
 	reader              *bufio.Reader
 	conn                net.Conn
+	inboundPacketQueue  chan any
 	outboundPacketQueue chan []byte
 	// When true, outboundPacketQueue is closed
 	disconnected bool
@@ -30,12 +32,14 @@ func newPlayer(entityId int32, server *Server, reader *bufio.Reader, conn net.Co
 
 		reader:              reader,
 		conn:                conn,
+		inboundPacketQueue:  make(chan any, packetBacklog),
 		outboundPacketQueue: make(chan []byte, packetBacklog),
 		disconnected:        false,
 
 		username: username,
 	}
 
+	go player.readLoop()
 	go player.writeLoop()
 
 	return player
@@ -43,6 +47,18 @@ func newPlayer(entityId int32, server *Server, reader *bufio.Reader, conn net.Co
 
 func (player *Player) Id() int32 {
 	return player.id
+}
+
+func (player *Player) Tick() {
+processPackets:
+	for {
+		select {
+		case packet := <-player.inboundPacketQueue:
+			player.handlePacket(packet)
+		default:
+			break processPackets
+		}
+	}
 }
 
 func (player *Player) Teleport(x float64, y float64, z float64) {
@@ -108,6 +124,47 @@ func (player *Player) sendChunk(pos level.ChunkPos, ch *chunk) {
 func (player *Player) queuePacket(data []byte) {
 	if !player.disconnected {
 		player.outboundPacketQueue <- data
+	}
+}
+
+func (player *Player) handlePacket(packet any) {
+	switch packet.(type) {
+	}
+}
+
+func (player *Player) readLoop() {
+	defer player.Disconnect()
+
+loop:
+	for {
+		id, err := player.reader.ReadByte()
+		if err != nil {
+			fmt.Printf("%s\n", err)
+			break loop
+		}
+
+		var packet any
+		switch id {
+		case protocol.KeepAliveId:
+			packet = &protocol.KeepAlive{}
+		case protocol.GroundedId:
+			packet = &protocol.Grounded{}
+		case protocol.PositionId:
+			packet = &protocol.Position{}
+		case protocol.LookId:
+			packet = &protocol.Look{}
+		case protocol.LookMoveId:
+			packet = &protocol.LookMove{}
+		default:
+			fmt.Printf("unsupported packet id %d\n", id)
+			break loop
+		}
+
+		if err := protocol.Unmarshal(player.reader, packet); err != nil {
+			fmt.Printf("%s\n", err)
+			break loop
+		}
+		player.inboundPacketQueue <- packet
 	}
 }
 

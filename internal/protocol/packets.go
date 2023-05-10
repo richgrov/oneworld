@@ -1,5 +1,10 @@
 package protocol
 
+const KeepAliveId = 0
+
+type KeepAlive struct {
+}
+
 const LoginId = 1
 
 type Login struct {
@@ -15,6 +20,12 @@ type Handshake struct {
 	Username string `maxLen:"16"`
 }
 
+const GroundedId = 10
+
+type Grounded struct {
+	OnGround bool
+}
+
 const PositionId = 11
 
 type Position struct {
@@ -22,6 +33,26 @@ type Position struct {
 	Y        float64
 	Stance   float64
 	Z        float64
+	OnGround bool
+}
+
+const LookId = 12
+
+type Look struct {
+	Yaw      float32
+	Pitch    float32
+	OnGround bool
+}
+
+const LookMoveId = 13
+
+type LookMove struct {
+	X        float64
+	Y        float64
+	Stance   float64
+	Z        float64
+	Yaw      float32
+	Pitch    float32
 	OnGround bool
 }
 
