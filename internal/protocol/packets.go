@@ -24,3 +24,24 @@ type Position struct {
 	Z        float64
 	OnGround bool
 }
+
+const PreChunkId = 50
+
+type PreChunk struct {
+	ChunkX int32
+	ChunkZ int32
+	// true to load, false to unload
+	Load bool
+}
+
+const ChunkDataId = 51
+
+type ChunkData struct {
+	StartX int32
+	StartY int16
+	StartZ int32
+	XSize  byte
+	YSize  byte
+	ZSize  byte
+	Data   []byte
+}

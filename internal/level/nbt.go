@@ -2,7 +2,6 @@ package level
 
 import (
 	"bufio"
-	"compress/gzip"
 	"encoding/binary"
 	"errors"
 	"io"
@@ -24,12 +23,7 @@ const (
 	TagLongArray
 )
 
-func readNbt(r io.Reader) (map[string]any, error) {
-	gzipReader, err := gzip.NewReader(r)
-	if err != nil {
-		return nil, err
-	}
-	reader := bufio.NewReader(gzipReader)
+func readNbt(reader *bufio.Reader) (map[string]any, error) {
 
 	if tag, err := reader.ReadByte(); err != nil {
 		return nil, err

@@ -1,6 +1,8 @@
 package level
 
 import (
+	"bufio"
+	"compress/gzip"
 	"encoding/json"
 	"errors"
 	"os"
@@ -20,7 +22,11 @@ func ReadLevelData(levelDataFile string) (*LevelData, error) {
 		return nil, err
 	}
 
-	parsed, err := readNbt(file)
+	gzipReader, err := gzip.NewReader(file)
+	if err != nil {
+		return nil, err
+	}
+	parsed, err := readNbt(bufio.NewReader(gzipReader))
 	if err != nil {
 		return nil, err
 	}

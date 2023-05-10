@@ -30,7 +30,8 @@ type Server struct {
 	// main tick loop.
 	messageQueue chan func()
 
-	worldDir string
+	worldDir     string
+	viewDistance uint8
 
 	// Below two variables have no server use. Only sent to client
 	noiseSeed int64
@@ -42,13 +43,15 @@ type Server struct {
 
 	entities     map[int32]Entity
 	nextEntityId int32
+
+	chunks map[level.ChunkPos]*chunk
 }
 
 // Creates a new server instance. The tick loop is started in the background,
 // meaining this function will not block.
 //
 // `dimension` is only used by the client and has no impact on server behavior.
-func NewServer(address string, worldDir string, dimension Dimension) (*Server, error) {
+func NewServer(address string, worldDir string, viewDistance uint8, dimension Dimension) (*Server, error) {
 	listener, err := net.Listen("tcp", address)
 	if err != nil {
 		return nil, err
@@ -65,7 +68,8 @@ func NewServer(address string, worldDir string, dimension Dimension) (*Server, e
 		shutdownQueue:   sync.WaitGroup{},
 		messageQueue:    make(chan func(), messageQueueBacklog),
 
-		worldDir: worldDir,
+		worldDir:     worldDir,
+		viewDistance: viewDistance,
 
 		noiseSeed: data.RandomSeed,
 		dimension: dimension,
@@ -76,6 +80,8 @@ func NewServer(address string, worldDir string, dimension Dimension) (*Server, e
 
 		entities:     make(map[int32]Entity),
 		nextEntityId: 0,
+
+		chunks: make(map[level.ChunkPos]*chunk),
 	}
 
 	go server.acceptLoop(listener)
@@ -146,7 +152,7 @@ func handleConnection(reader *bufio.Reader, writer io.Writer) (string, error) {
 
 func (server *Server) addPlayer(reader *bufio.Reader, conn net.Conn, username string) {
 	id := server.newEntityId()
-	player := newPlayer(id, reader, conn, username)
+	player := newPlayer(id, server, reader, conn, username)
 	server.entities[id] = player
 
 	player.queuePacket(protocol.Marshal(protocol.LoginId, &protocol.Login{
@@ -154,14 +160,7 @@ func (server *Server) addPlayer(reader *bufio.Reader, conn net.Conn, username st
 		MapSeed:         server.noiseSeed,
 		Dimension:       byte(server.dimension),
 	}))
-
-	player.queuePacket(protocol.Marshal(protocol.PositionId, &protocol.Position{
-		X:        float64(server.spawnX),
-		Y:        float64(server.spawnY),
-		Stance:   0,
-		Z:        float64(server.spawnZ),
-		OnGround: false,
-	}))
+	player.Teleport(float64(server.spawnX), float64(server.spawnY)+10.0, float64(server.spawnZ))
 
 	println(username, "logged in")
 }
@@ -198,6 +197,20 @@ func (server *Server) newEntityId() int32 {
 
 	server.nextEntityId++
 	return id
+}
+
+func (server *Server) loadChunks(positions []level.ChunkPos) {
+	go func() {
+		chunks := level.LoadChunks(filepath.Join(server.worldDir, "region"), positions...)
+		for i, data := range chunks {
+			chunk := server.chunks[positions[i]]
+			chunk.data = *data
+
+			for _, player := range chunk.viewers {
+				player.sendChunk(positions[i], chunk)
+			}
+		}
+	}()
 }
 
 // Stops all running server processes. The function will block until all
