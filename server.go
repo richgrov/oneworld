@@ -182,8 +182,14 @@ func (server *Server) tickLoop() {
 		}
 
 		// Drain message queue
-		for message := range server.messageQueue {
-			message()
+	messageQueue:
+		for {
+			select {
+			case message := <-server.messageQueue:
+				message()
+			default:
+				break messageQueue
+			}
 		}
 	}
 }
