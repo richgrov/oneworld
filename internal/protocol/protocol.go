@@ -79,6 +79,9 @@ func Unmarshal(reader io.Reader, v any) error {
 			}
 
 			field.SetString(str)
+
+		default:
+			panic("unmarshal: unsupported field type")
 		}
 	}
 
@@ -88,6 +91,7 @@ func Unmarshal(reader io.Reader, v any) error {
 // Encodes a struct's fields in the order they are declared and returns the
 // bytes
 func Marshal(packetId byte, v any) []byte {
+	ty := reflect.TypeOf(v).Elem()
 	val := reflect.ValueOf(v).Elem()
 	buf := bytes.NewBuffer(make([]byte, 0))
 	binary.Write(buf, binary.BigEndian, packetId)
@@ -105,6 +109,9 @@ func Marshal(packetId byte, v any) []byte {
 		case reflect.Uint8:
 			buf.WriteByte(byte(field.Uint()))
 
+		case reflect.Int16:
+			binary.Write(buf, binary.BigEndian, int16(field.Int()))
+
 		case reflect.Int32:
 			binary.Write(buf, binary.BigEndian, int32(field.Int()))
 
@@ -116,6 +123,17 @@ func Marshal(packetId byte, v any) []byte {
 
 		case reflect.String:
 			writeString(buf, field.String())
+
+		case reflect.Slice:
+			if ty.Field(i).Type.Elem().Kind() != reflect.Uint8 {
+				panic("only []byte is supported")
+			}
+			slice := field.Interface().([]byte)
+			binary.Write(buf, binary.BigEndian, int32(len(slice)))
+			buf.Write(slice)
+
+		default:
+			panic("marshal: unsupported field type")
 		}
 	}
 
