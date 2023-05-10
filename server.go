@@ -8,11 +8,13 @@ import (
 	"math"
 	"net"
 	"path/filepath"
+	"reflect"
 	"sync"
 	"time"
 
 	"github.com/richgrov/oneworld/internal/level"
 	"github.com/richgrov/oneworld/internal/protocol"
+	"github.com/richgrov/oneworld/traits"
 )
 
 const protocolVersion = 14
@@ -29,6 +31,7 @@ type Server struct {
 	// Functions added to this channel will be invoked from the goroutine of the
 	// main tick loop.
 	messageQueue chan func()
+	traitData    *traits.TraitData
 
 	worldDir     string
 	viewDistance uint8
@@ -67,6 +70,7 @@ func NewServer(address string, worldDir string, viewDistance uint8, dimension Di
 		tickLoopStopper: make(chan byte),
 		shutdownQueue:   sync.WaitGroup{},
 		messageQueue:    make(chan func(), messageQueueBacklog),
+		traitData:       traits.NewData(reflect.TypeOf(&PlayerJoinEvent{})),
 
 		worldDir:     worldDir,
 		viewDistance: viewDistance,
@@ -162,7 +166,10 @@ func (server *Server) addPlayer(reader *bufio.Reader, conn net.Conn, username st
 	}))
 	player.Teleport(float64(server.spawnX), float64(server.spawnY)+10.0, float64(server.spawnZ))
 
-	println(username, "logged in")
+	event := &PlayerJoinEvent{
+		player: player,
+	}
+	traits.CallEvent(server.traitData, event)
 }
 
 // Runs the server's main tick loop
@@ -233,4 +240,8 @@ func (server *Server) Shutdown() {
 	server.listener.Close()
 	server.tickLoopStopper <- 0
 	server.shutdownQueue.Wait()
+}
+
+func (server *Server) TraitData() *traits.TraitData {
+	return server.traitData
 }

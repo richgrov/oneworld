@@ -182,6 +182,10 @@ func (player *Player) writeLoop() {
 	}
 }
 
+func (player *Player) Username() string {
+	return player.username
+}
+
 // Can safely be called more than once
 func (player *Player) Disconnect() {
 	println("Disconnecting", player.username)
