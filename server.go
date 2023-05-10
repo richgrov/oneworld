@@ -212,13 +212,16 @@ func (server *Server) newEntityId() int32 {
 
 func (server *Server) loadChunks(positions []level.ChunkPos) {
 	go func() {
-		chunks := level.LoadChunks(filepath.Join(server.worldDir, "region"), positions...)
-		for i, data := range chunks {
-			chunk := server.chunks[positions[i]]
-			chunk.data = *data
+		chunks := level.LoadChunks(filepath.Join(server.worldDir, "region"), positions)
 
-			for _, player := range chunk.viewers {
-				player.sendChunk(positions[i], chunk)
+		server.messageQueue <- func() {
+			for i, data := range chunks {
+				chunk := server.chunks[positions[i]]
+				chunk.data = *data
+
+				for _, player := range chunk.viewers {
+					player.sendChunk(positions[i], chunk)
+				}
 			}
 		}
 	}()

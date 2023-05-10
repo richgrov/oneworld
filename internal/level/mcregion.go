@@ -40,7 +40,7 @@ func (chunk *ChunkData) CompressData() []byte {
 
 // Tries to load all chunks at the specified positions. The chunks are returned
 // in the same order they were specified
-func LoadChunks(regionDir string, chunks ...ChunkPos) []*ChunkData {
+func LoadChunks(regionDir string, chunks []ChunkPos) []*ChunkData {
 	files := make(map[ChunkPos]*os.File)
 	defer func() {
 		for _, file := range files {
