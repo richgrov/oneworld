@@ -97,3 +97,56 @@ func TestSet(t *testing.T) {
 		t.Error("trait recieved event after being unset")
 	}
 }
+
+func BenchmarkSetUnset(b *testing.B) {
+	trait := &TestTrait{
+		field:                "hello",
+		eventRecieved:        false,
+		invalidEventRecieved: false,
+	}
+	holder := &TestHolder{
+		traitData: traits.NewData(reflect.TypeOf(&TestEvent{})),
+	}
+
+	for n := 0; n < b.N; n++ {
+		traits.Set(holder, trait)
+		traits.Unset[TestTrait](holder)
+	}
+}
+
+func BenchmarkGet(b *testing.B) {
+	trait := &TestTrait{
+		field:                "hello",
+		eventRecieved:        false,
+		invalidEventRecieved: false,
+	}
+	holder := &TestHolder{
+		traitData: traits.NewData(reflect.TypeOf(&TestEvent{})),
+	}
+	traits.Set(holder, trait)
+
+	for n := 0; n < b.N; n++ {
+		traits.Get[TestTrait](holder)
+	}
+}
+
+func BenchmarkEvent(b *testing.B) {
+	trait := &TestTrait{
+		field:                "hello",
+		eventRecieved:        false,
+		invalidEventRecieved: false,
+	}
+	holder := &TestHolder{
+		traitData: traits.NewData(reflect.TypeOf(&TestEvent{})),
+	}
+
+	traits.Set(holder, trait)
+
+	event := &TestEvent{
+		message: "secret",
+	}
+
+	for n := 0; n < b.N; n++ {
+		traits.CallEvent(holder.traitData, event)
+	}
+}
