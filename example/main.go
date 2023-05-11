@@ -12,6 +12,17 @@ type ServerTrait struct{}
 
 func (t *ServerTrait) OnPlayerJoin(event *oneworld.PlayerJoinEvent) {
 	println(event.Player().Username(), "logged in")
+	traits.Set(event.Player(), &PlayerTrait{})
+}
+
+type PlayerTrait struct{}
+
+func (t *PlayerTrait) OnChat(event *oneworld.ChatEvent) {
+	event.Player().Message(event.Player().Username() + ": " + event.Message)
+}
+
+func (t *PlayerTrait) OnCommand(event *oneworld.CommandEvent) {
+	event.Player().Message("/" + event.Command)
 }
 
 func main() {

@@ -20,6 +20,12 @@ type Handshake struct {
 	Username string `maxLen:"16"`
 }
 
+const ChatId = 3
+
+type Chat struct {
+	Message string `maxLen:"119"`
+}
+
 const GroundedId = 10
 
 type Grounded struct {

@@ -4,16 +4,20 @@ import (
 	"bufio"
 	"fmt"
 	"net"
+	"reflect"
+	"strings"
 
 	"github.com/richgrov/oneworld/internal/level"
 	"github.com/richgrov/oneworld/internal/protocol"
+	"github.com/richgrov/oneworld/traits"
 )
 
 const packetBacklog = 32
 
 type Player struct {
-	id     int32
-	server *Server
+	id        int32
+	server    *Server
+	traitData *traits.TraitData
 
 	reader              *bufio.Reader
 	conn                net.Conn
@@ -29,6 +33,10 @@ func newPlayer(entityId int32, server *Server, reader *bufio.Reader, conn net.Co
 	player := &Player{
 		id:     entityId,
 		server: server,
+		traitData: traits.NewData(
+			reflect.TypeOf(&ChatEvent{}),
+			reflect.TypeOf(&CommandEvent{}),
+		),
 
 		reader:              reader,
 		conn:                conn,
@@ -47,6 +55,10 @@ func newPlayer(entityId int32, server *Server, reader *bufio.Reader, conn net.Co
 
 func (player *Player) Id() int32 {
 	return player.id
+}
+
+func (player *Player) TraitData() *traits.TraitData {
+	return player.traitData
 }
 
 func (player *Player) Tick() {
@@ -128,7 +140,19 @@ func (player *Player) queuePacket(data []byte) {
 }
 
 func (player *Player) handlePacket(packet any) {
-	switch packet.(type) {
+	switch pkt := packet.(type) {
+	case *protocol.Chat:
+		if strings.HasPrefix(pkt.Message, "/") {
+			traits.CallEvent(player.traitData, &CommandEvent{
+				player:  player,
+				Command: strings.TrimPrefix(pkt.Message, "/"),
+			})
+		} else {
+			traits.CallEvent(player.traitData, &ChatEvent{
+				player:  player,
+				Message: pkt.Message,
+			})
+		}
 	}
 }
 
@@ -147,6 +171,8 @@ loop:
 		switch id {
 		case protocol.KeepAliveId:
 			packet = &protocol.KeepAlive{}
+		case protocol.ChatId:
+			packet = &protocol.Chat{}
 		case protocol.GroundedId:
 			packet = &protocol.Grounded{}
 		case protocol.PositionId:
@@ -184,6 +210,12 @@ func (player *Player) writeLoop() {
 
 func (player *Player) Username() string {
 	return player.username
+}
+
+func (player *Player) Message(message string) {
+	player.queuePacket(protocol.Marshal(protocol.ChatId, &protocol.Chat{
+		Message: message,
+	}))
 }
 
 // Can safely be called more than once
