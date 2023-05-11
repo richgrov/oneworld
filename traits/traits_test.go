@@ -83,4 +83,17 @@ func TestSet(t *testing.T) {
 	if traitInstance.invalidEventRecieved {
 		t.Error("trait recieved an event that wasn't registered")
 	}
+
+	// Make sure trait is not retrievable after Unset()
+	traits.Unset[TestTrait](holder)
+	if traitInstance := traits.Get[TestTrait](holder); traitInstance != nil {
+		t.Errorf("trait was not unset: %+v", traitInstance)
+	}
+
+	// Events shouldn't be recieved after Unset()
+	trait.eventRecieved = false
+	traits.CallEvent(holder.traitData, event)
+	if traitInstance.eventRecieved {
+		t.Error("trait recieved event after being unset")
+	}
 }

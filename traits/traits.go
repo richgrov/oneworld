@@ -55,25 +55,28 @@ func Set(target TraitHolder, trait any) {
 	traitData.traits[ty] = trait
 }
 
-func Unset(target TraitHolder, trait any) {
-	val := reflect.ValueOf(trait)
+func Unset[T any](target TraitHolder) {
+	ty := reflect.TypeOf((*T)(nil))
 	traitData := target.TraitData()
 
-	for i := 0; i < val.NumMethod(); i++ {
-		method := val.Method(i)
-		methodTy := method.Type()
-		if methodTy.NumIn() != 1 {
+	for i := 0; i < ty.NumMethod(); i++ {
+		// Unlike reflect values, method types include the reciever, so we need
+		// to offset the parameter by 1
+		methodTy := ty.Method(i).Type
+		if methodTy.NumIn() != 2 {
 			continue
 		}
 
-		paramTy := methodTy.In(0)
+		paramTy := methodTy.In(1)
 		listeners, ok := traitData.listeners[paramTy]
 		if !ok {
 			continue
 		}
 
-		delete(listeners, val.Type())
+		delete(listeners, ty)
 	}
+
+	delete(target.TraitData().traits, ty)
 }
 
 func Get[T any](target TraitHolder) *T {
