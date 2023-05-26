@@ -2,6 +2,7 @@ package oneworld
 
 import (
 	"bufio"
+	"container/list"
 	"errors"
 	"fmt"
 	"io"
@@ -48,6 +49,14 @@ type Server struct {
 	nextEntityId int32
 
 	chunks map[level.ChunkPos]*chunk
+
+	currentTick int
+	schedules   list.List
+}
+
+type schedule struct {
+	fn      func() int
+	nextRun int
 }
 
 // Creates a new server instance. The tick loop is started in the background,
@@ -86,6 +95,9 @@ func NewServer(address string, worldDir string, viewDistance uint8, dimension Di
 		nextEntityId: 0,
 
 		chunks: make(map[level.ChunkPos]*chunk),
+
+		currentTick: 0,
+		schedules:   list.List{},
 	}
 
 	go server.acceptLoop(listener)
@@ -203,6 +215,32 @@ func (server *Server) tickLoop() {
 		for _, entity := range server.entities {
 			entity.Tick()
 		}
+
+		// Tick schedules
+		e := server.schedules.Front()
+		for {
+			if e == nil {
+				break
+			}
+
+			sched := e.Value.(*schedule)
+			if sched.nextRun == server.currentTick {
+				nextRunDelay := sched.fn()
+
+				if nextRunDelay <= 0 {
+					next := e.Next()
+					server.schedules.Remove(e)
+					e = next
+					continue
+				}
+
+				sched.nextRun += nextRunDelay
+			}
+
+			e = e.Next()
+		}
+
+		server.currentTick++
 	}
 }
 
@@ -232,6 +270,17 @@ func (server *Server) loadChunks(positions []level.ChunkPos) {
 			}
 		}
 	}()
+}
+
+// Repeatedly calls the provided function on the server's main goroutine. The
+// function is first executed on the next tick. The function's return value is
+// the number of ticks to wait until calling it again. If the return value is
+// less than 1, the function will not be called again.
+func (server *Server) Repeat(fn func() int) {
+	server.schedules.PushBack(&schedule{
+		fn:      fn,
+		nextRun: server.currentTick + 1,
+	})
 }
 
 // Stops all running server processes. The function will block until all

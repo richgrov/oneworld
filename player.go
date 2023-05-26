@@ -50,6 +50,16 @@ func newPlayer(entityId int32, server *Server, reader *bufio.Reader, conn net.Co
 	go player.readLoop()
 	go player.writeLoop()
 
+	server.Repeat(func() int {
+		player.queuePacket(protocol.Marshal(protocol.KeepAliveId, &protocol.KeepAlive{}))
+
+		if !player.disconnected {
+			return 20 * 20
+		} else {
+			return 0
+		}
+	})
+
 	return player
 }
 
