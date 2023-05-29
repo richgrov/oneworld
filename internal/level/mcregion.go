@@ -6,6 +6,7 @@ import (
 	"compress/zlib"
 	"encoding/binary"
 	"fmt"
+	"math"
 	"os"
 	"path/filepath"
 )
@@ -51,7 +52,11 @@ func LoadChunks(regionDir string, chunks []ChunkPos) []*ChunkData {
 	results := make([]*ChunkData, 0, len(chunks))
 
 	for i, chunkPos := range chunks {
-		region := ChunkPos{chunkPos.X / 32, chunkPos.Z / 32}
+		// Floor divide chunk coordinates by 32
+		region := ChunkPos{
+			int32(math.Floor(float64(chunkPos.X) / 32.)),
+			int32(math.Floor(float64(chunkPos.Z) / 32.)),
+		}
 		results = append(results, &ChunkData{})
 
 		// Get cached file handle or open a new one
