@@ -135,9 +135,9 @@ func (player *Player) sendChunk(pos level.ChunkPos, ch *chunk) {
 		StartX: pos.X * 16,
 		StartY: 0,
 		StartZ: pos.Z * 16,
-		XSize:  16,
-		YSize:  128,
-		ZSize:  16,
+		XSize:  15,
+		YSize:  127,
+		ZSize:  15,
 		Data:   ch.data.CompressData(),
 	}))
 }
