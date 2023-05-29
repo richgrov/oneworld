@@ -27,6 +27,8 @@ type Player struct {
 	disconnected bool
 
 	username string
+
+	viewableChunks map[level.ChunkPos]*chunk
 }
 
 func newPlayer(entityId int32, server *Server, reader *bufio.Reader, conn net.Conn, username string) *Player {
@@ -45,6 +47,8 @@ func newPlayer(entityId int32, server *Server, reader *bufio.Reader, conn net.Co
 		disconnected:        false,
 
 		username: username,
+
+		viewableChunks: make(map[level.ChunkPos]*chunk),
 	}
 
 	go player.readLoop()
@@ -83,6 +87,11 @@ processPackets:
 	}
 }
 
+// Teleports the player to the speicified coordinates. Will automatically
+// load/unload chunks as needed.
+//
+// This function is also used to spawn the player into the world after they
+// login.
 func (player *Player) Teleport(x float64, y float64, z float64) {
 	player.queuePacket(protocol.Marshal(protocol.PositionId, &protocol.Position{
 		X:        x,
@@ -92,31 +101,56 @@ func (player *Player) Teleport(x float64, y float64, z float64) {
 		OnGround: false,
 	}))
 
-	// Send/generate chunks
+	// Determine all the chunks that will need to be loaded at the player's new
+	// position
 	centerChunkX := int32(x / 16)
-	centerchunkZ := int32(z / 16)
+	centerChunkZ := int32(z / 16)
 	viewDist := int32(player.server.viewDistance)
+
+	chunksInNewView := make(map[level.ChunkPos]bool)
+	for chunkX := centerChunkX - viewDist; chunkX <= centerChunkZ+viewDist; chunkX++ {
+		for chunkZ := centerChunkZ - viewDist; chunkZ <= centerChunkZ+viewDist; chunkZ++ {
+			chunksInNewView[level.ChunkPos{chunkX, chunkZ}] = true
+		}
+	}
+
+	// Unload all the old chunks that are no longer in view
+	for pos, chunk := range player.viewableChunks {
+		if _, ok := chunksInNewView[pos]; !ok {
+			delete(chunk.viewers, player)
+			delete(player.viewableChunks, pos)
+			player.queuePacket(protocol.Marshal(protocol.PreChunkId, &protocol.PreChunk{
+				ChunkX: pos.X,
+				ChunkZ: pos.Z,
+				Load:   false,
+			}))
+		}
+	}
 
 	chunksToLoad := make([]level.ChunkPos, 0)
 
-	for chunkX := centerChunkX - viewDist; chunkX <= centerchunkZ+viewDist; chunkX++ {
-		for chunkZ := centerchunkZ - viewDist; chunkZ <= centerchunkZ+viewDist; chunkZ++ {
-			pos := level.ChunkPos{chunkX, chunkZ}
+	for pos, _ := range chunksInNewView {
+		chunk, ok := player.server.chunks[pos]
+		if ok {
+			// The chunk is already loaded or it is being loaded
+			player.viewableChunks[pos] = chunk
 
-			chunk, ok := player.server.chunks[pos]
-			if !ok {
-				chunk = newChunk()
-				chunk.viewers = append(chunk.viewers, player)
-				player.server.chunks[pos] = chunk
-				chunksToLoad = append(chunksToLoad, pos)
-				continue
-			}
-
-			chunk.viewers = append(chunk.viewers, player)
-			if chunk.isDataLoaded() {
+			// If the chunk is loaded and the player was not previously viewing
+			// it, send it now
+			if _, ok := chunk.viewers[player]; !ok && chunk.isDataLoaded() {
 				player.sendChunk(pos, chunk)
 			}
+
+			chunk.viewers[player] = true
+			continue
 		}
+
+		// Initialize the chunk and queue it to load
+		chunk = newChunk()
+		chunk.viewers[player] = true
+		player.server.chunks[pos] = chunk
+		player.viewableChunks[pos] = chunk
+		chunksToLoad = append(chunksToLoad, pos)
 	}
 
 	if len(chunksToLoad) > 0 {

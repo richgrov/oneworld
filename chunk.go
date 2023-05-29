@@ -6,12 +6,12 @@ import (
 
 type chunk struct {
 	data    level.ChunkData
-	viewers []*Player
+	viewers map[*Player]bool
 }
 
 func newChunk() *chunk {
 	return &chunk{
-		viewers: make([]*Player, 0),
+		viewers: make(map[*Player]bool),
 	}
 }
 

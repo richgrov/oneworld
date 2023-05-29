@@ -48,6 +48,18 @@ type Server struct {
 	entities     map[int32]Entity
 	nextEntityId int32
 
+	// All the chunks on the server.
+	//
+	// If the map does not contain the key:
+	// - The chunk is not loaded AND it is not actively being loaded
+	//
+	// If the map contains the key, but chunk.isDataLoaded() is false:
+	// - The chunk is currently being loaded
+	//
+	// If the map contains the key AND chunk.isDataLoaded() is true:
+	// - The chunk along with all its data is loaded and valid
+	//
+	// The map should never contain a key pointing to nil.
 	chunks map[level.ChunkPos]*chunk
 
 	currentTick int
@@ -262,9 +274,18 @@ func (server *Server) loadChunks(positions []level.ChunkPos) {
 		server.messageQueue <- func() {
 			for i, data := range chunks {
 				chunk := server.chunks[positions[i]]
-				chunk.data = *data
 
-				for _, player := range chunk.viewers {
+				if data.BlockData == nil {
+					// If an error ocurred, remove the chunk from all memory locations
+					for player := range chunk.viewers {
+						delete(player.viewableChunks, positions[i])
+					}
+					delete(server.chunks, positions[i])
+					continue
+				}
+
+				chunk.data = *data
+				for player := range chunk.viewers {
 					player.sendChunk(positions[i], chunk)
 				}
 			}
