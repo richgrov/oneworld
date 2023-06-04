@@ -7,6 +7,7 @@ import (
 	"reflect"
 	"strings"
 
+	"github.com/richgrov/oneworld/blocks"
 	"github.com/richgrov/oneworld/internal/level"
 	"github.com/richgrov/oneworld/internal/protocol"
 	"github.com/richgrov/oneworld/traits"
@@ -197,6 +198,17 @@ func (player *Player) handlePacket(packet any) {
 				Message: pkt.Message,
 			})
 		}
+	case *protocol.Dig:
+		switch pkt.Status {
+		case 0:
+			blockType, _ := player.server.GetBlock(pkt.X, int32(pkt.Y), pkt.Z)
+			if blocks.Hardness(blockType) == blocks.InstaBreak {
+				player.SendBlockChange(pkt.X, int32(pkt.Y), pkt.Z, blocks.Air, 0)
+			}
+
+		case 2:
+			player.SendBlockChange(pkt.X, int32(pkt.Y), pkt.Z, blocks.Air, 0)
+		}
 	}
 }
 
@@ -225,6 +237,10 @@ loop:
 			packet = &protocol.Look{}
 		case protocol.LookMoveId:
 			packet = &protocol.LookMove{}
+		case protocol.DigId:
+			packet = &protocol.Dig{}
+		case protocol.AnimationId:
+			packet = &protocol.Animation{}
 		default:
 			fmt.Printf("unsupported packet id %d\n", id)
 			break loop
@@ -254,6 +270,16 @@ func (player *Player) writeLoop() {
 
 func (player *Player) Username() string {
 	return player.username
+}
+
+func (player *Player) SendBlockChange(x int32, y int32, z int32, ty blocks.BlockType, data byte) {
+	player.queuePacket(protocol.Marshal(protocol.BlockChangeId, &protocol.BlockChange{
+		X:    x,
+		Y:    byte(y),
+		Z:    z,
+		Type: byte(ty),
+		Data: data,
+	}))
 }
 
 func (player *Player) Message(message string) {

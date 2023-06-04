@@ -6,9 +6,10 @@ import (
 	"compress/zlib"
 	"encoding/binary"
 	"fmt"
-	"math"
 	"os"
 	"path/filepath"
+
+	"github.com/richgrov/oneworld/internal/util"
 )
 
 type ChunkPos struct {
@@ -18,9 +19,9 @@ type ChunkPos struct {
 
 type ChunkData struct {
 	Blocks     []byte
-	BlockData  []byte
-	BlockLight []byte
-	SkyLight   []byte
+	BlockData  NibbleSlice
+	BlockLight NibbleSlice
+	SkyLight   NibbleSlice
 }
 
 // Compress chunk data to the format it is sent over Minecraft protocol
@@ -54,8 +55,8 @@ func LoadChunks(regionDir string, chunks []ChunkPos) []*ChunkData {
 	for i, chunkPos := range chunks {
 		// Floor divide chunk coordinates by 32
 		region := ChunkPos{
-			int32(math.Floor(float64(chunkPos.X) / 32.)),
-			int32(math.Floor(float64(chunkPos.Z) / 32.)),
+			util.DivideAndFloorI32(chunkPos.X, 32),
+			util.DivideAndFloorI32(chunkPos.Z, 32),
 		}
 		results = append(results, &ChunkData{})
 
@@ -164,4 +165,15 @@ func LoadChunks(regionDir string, chunks []ChunkPos) []*ChunkData {
 	}
 
 	return results
+}
+
+type NibbleSlice []byte
+
+func (slice NibbleSlice) GetNibble(index int) byte {
+	byteIndex := index >> 1
+	if index%2 == 0 {
+		return slice[byteIndex] & 0b00001111
+	} else {
+		return slice[byteIndex] >> 4
+	}
 }

@@ -62,6 +62,23 @@ type LookMove struct {
 	OnGround bool
 }
 
+const DigId = 14
+
+type Dig struct {
+	Status byte
+	X      int32
+	Y      byte
+	Z      int32
+	Face   byte
+}
+
+const AnimationId = 18
+
+type Animation struct {
+	EntityId int32
+	Animate  byte
+}
+
 const PreChunkId = 50
 
 type PreChunk struct {
@@ -81,4 +98,14 @@ type ChunkData struct {
 	YSize  byte
 	ZSize  byte
 	Data   []byte
+}
+
+const BlockChangeId = 53
+
+type BlockChange struct {
+	X    int32
+	Y    byte
+	Z    int32
+	Type byte
+	Data byte
 }

@@ -13,8 +13,10 @@ import (
 	"sync"
 	"time"
 
+	"github.com/richgrov/oneworld/blocks"
 	"github.com/richgrov/oneworld/internal/level"
 	"github.com/richgrov/oneworld/internal/protocol"
+	"github.com/richgrov/oneworld/internal/util"
 	"github.com/richgrov/oneworld/traits"
 )
 
@@ -291,6 +293,20 @@ func (server *Server) loadChunks(positions []level.ChunkPos) {
 			}
 		}
 	}()
+}
+
+func (server *Server) GetBlock(x int32, y int32, z int32) (blocks.BlockType, byte) {
+	ch, ok := server.chunks[level.ChunkPos{
+		util.DivideAndFloorI32(x, 16),
+		util.DivideAndFloorI32(z, 16),
+	}]
+
+	if !ok || !ch.isDataLoaded() {
+		return blocks.Air, 0
+	}
+
+	index := chunkCoordsToIndex(util.I32Abs(x%16), y, util.I32Abs(z%16))
+	return blocks.BlockType(ch.data.Blocks[index]), ch.data.BlockData.GetNibble(int(index))
 }
 
 // Repeatedly calls the provided function on the server's main goroutine. The
