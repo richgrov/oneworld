@@ -59,6 +59,8 @@ func ReadNextPacket(r *bufio.Reader) (any, error) {
 		return new(SetAngleAndPositionPacket).Unmarshal(r)
 	case DigId:
 		return new(DigPacket).Unmarshal(r)
+	case UseItemId:
+		return new(UseItemPacket).Unmarshal(r)
 	case AnimationId:
 		return new(AnimationPacket).Unmarshal(r)
 	case EntityActionId:
@@ -238,6 +240,32 @@ func (pkt *DigPacket) Unmarshal(r *bufio.Reader) (*DigPacket, error) {
 	pkt.Y = reader.readByte()
 	pkt.Z = reader.readInt()
 	pkt.Face = reader.readByte()
+	return pkt, reader.err
+}
+
+const UseItemId = 15
+
+type UseItemPacket struct {
+	X         int32
+	Y         byte
+	Z         int32
+	Direction byte
+	ItemId    int16
+	StackSize byte
+	Damage    int16
+}
+
+func (pkt *UseItemPacket) Unmarshal(r *bufio.Reader) (*UseItemPacket, error) {
+	reader := newPacketReader(r)
+	pkt.X = reader.readInt()
+	pkt.Y = reader.readByte()
+	pkt.Z = reader.readInt()
+	pkt.Direction = reader.readByte()
+	pkt.ItemId = reader.readShort()
+	if pkt.ItemId >= 0 {
+		pkt.StackSize = reader.readByte()
+		pkt.Damage = reader.readShort()
+	}
 	return pkt, reader.err
 }
 

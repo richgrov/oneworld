@@ -61,6 +61,19 @@ func (reader *packetReader) readBool() bool {
 	}
 }
 
+func (reader *packetReader) readShort() int16 {
+	if reader.err != nil {
+		return 0
+	}
+
+	var i int16
+	if err := binary.Read(reader.r, binary.BigEndian, &i); err != nil {
+		reader.err = err
+		return 0
+	}
+	return i
+}
+
 func (reader *packetReader) readInt() int32 {
 	if reader.err != nil {
 		return 0
