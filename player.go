@@ -205,11 +205,11 @@ func (player *Player) handlePacket(packet any) {
 		case 0:
 			blockType, _ := player.server.GetBlock(pkt.X, int32(pkt.Y), pkt.Z)
 			if blocks.Hardness(blockType) == blocks.InstaBreak {
-				player.SendBlockChange(pkt.X, int32(pkt.Y), pkt.Z, blocks.Air, 0)
+				player.server.SetBlock(pkt.X, int32(pkt.Y), pkt.Z, blocks.Air, 0)
 			}
 
 		case 2:
-			player.SendBlockChange(pkt.X, int32(pkt.Y), pkt.Z, blocks.Air, 0)
+			player.server.SetBlock(pkt.X, int32(pkt.Y), pkt.Z, blocks.Air, 0)
 		}
 	}
 }

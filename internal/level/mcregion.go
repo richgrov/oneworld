@@ -177,3 +177,12 @@ func (slice NibbleSlice) GetNibble(index int) byte {
 		return slice[byteIndex] >> 4
 	}
 }
+
+func (slice NibbleSlice) SetNibble(index int, value byte) {
+	byteIndex := index >> 1
+	if index%2 == 0 {
+		slice[byteIndex] = slice[byteIndex]&0b11110000 | value&0b00001111
+	} else {
+		slice[byteIndex] = slice[byteIndex] & 0b00001111 & value << 4
+	}
+}

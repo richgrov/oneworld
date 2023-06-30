@@ -294,18 +294,38 @@ func (server *Server) loadChunks(positions []level.ChunkPos) {
 	}()
 }
 
-func (server *Server) GetBlock(x int32, y int32, z int32) (blocks.BlockType, byte) {
-	ch, ok := server.chunks[level.ChunkPos{
+func (server *Server) getChunkFromBlockPos(x int32, z int32) *chunk {
+	ch, _ := server.chunks[level.ChunkPos{
 		util.DivideAndFloorI32(x, 16),
 		util.DivideAndFloorI32(z, 16),
 	}]
+	return ch
+}
 
-	if !ok || !ch.isDataLoaded() {
+func (server *Server) GetBlock(x int32, y int32, z int32) (blocks.BlockType, byte) {
+	ch := server.getChunkFromBlockPos(x, z)
+	if ch == nil || !ch.isDataLoaded() {
 		return blocks.Air, 0
 	}
 
 	index := chunkCoordsToIndex(util.I32Abs(x%16), y, util.I32Abs(z%16))
 	return blocks.BlockType(ch.data.Blocks[index]), ch.data.BlockData.GetNibble(int(index))
+}
+
+func (server *Server) SetBlock(x int32, y int32, z int32, id blocks.BlockType, data byte) bool {
+	ch := server.getChunkFromBlockPos(x, z)
+	if ch == nil || !ch.isDataLoaded() {
+		return false
+	}
+
+	index := chunkCoordsToIndex(util.I32Abs(x%16), y, util.I32Abs(z%16))
+	ch.data.Blocks[index] = byte(id)
+	ch.data.BlockData.SetNibble(int(index), data)
+
+	for player := range ch.viewers {
+		player.SendBlockChange(x, y, z, id, data)
+	}
+	return true
 }
 
 // Repeatedly calls the provided function on the server's main goroutine. The
