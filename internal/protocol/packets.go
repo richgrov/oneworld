@@ -65,6 +65,10 @@ func ReadNextPacket(r *bufio.Reader) (any, error) {
 		return new(AnimationPacket).Unmarshal(r)
 	case EntityActionId:
 		return new(EntityActionPacket).Unmarshal(r)
+	case CloseInventoryId:
+		return new(CloseInventoryPacket).Unmarshal(r)
+	case InventoryClickId:
+		return new(InventoryClickPacket).Unmarshal(r)
 	default:
 		return nil, ErrInvalidPacketId
 	}
@@ -364,4 +368,44 @@ func (pkt *BlockChangePacket) Marshal() []byte {
 		pkt.Type,
 		pkt.Data,
 	)
+}
+
+const CloseInventoryId = 101
+
+type CloseInventoryPacket struct {
+	WindowId byte
+}
+
+func (pkt *CloseInventoryPacket) Unmarshal(r *bufio.Reader) (*CloseInventoryPacket, error) {
+	reader := newPacketReader(r)
+	pkt.WindowId = reader.readByte()
+	return pkt, reader.err
+}
+
+const InventoryClickId = 102
+
+type InventoryClickPacket struct {
+	WindowId   byte
+	Slot       int16
+	ClickType  byte
+	Action     int16
+	ShiftClick bool
+	ItemId     int16
+	StackSize  byte
+	Damage     int16
+}
+
+func (pkt *InventoryClickPacket) Unmarshal(r *bufio.Reader) (*InventoryClickPacket, error) {
+	reader := newPacketReader(r)
+	pkt.WindowId = reader.readByte()
+	pkt.Slot = reader.readShort()
+	pkt.ClickType = reader.readByte()
+	pkt.Action = reader.readShort()
+	pkt.ShiftClick = reader.readBool()
+	pkt.ItemId = reader.readShort()
+	if pkt.ItemId >= 0 {
+		pkt.StackSize = reader.readByte()
+		pkt.Damage = reader.readShort()
+	}
+	return pkt, reader.err
 }
