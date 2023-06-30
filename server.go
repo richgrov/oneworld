@@ -151,21 +151,20 @@ func (server *Server) acceptLoop(listener net.Listener) {
 // Handles the login process for a new connection. Returns the username of the
 // player
 func handleConnection(reader *bufio.Reader, writer io.Writer) (string, error) {
-	var handshake protocol.Handshake
-	if err := protocol.ReadPacket(reader, protocol.HandshakeId, &handshake); err != nil {
+	var handshake protocol.HandshakePacket
+	if err := protocol.ExpectPacket(reader, protocol.HandshakeId, &handshake); err != nil {
 		return "", err
 	}
 
 	// Legacy auth is no longer supported, so servers always respond with
 	// offline mode handshake, which is "-" for the username.
-	if _, err := writer.Write(protocol.Marshal(protocol.HandshakeId, &protocol.Handshake{
-		Username: "-",
-	})); err != nil {
+	handshakeResponse := &protocol.HandshakePacket{Username: "-"}
+	if _, err := writer.Write(handshakeResponse.Marshal()); err != nil {
 		return "", err
 	}
 
-	var login protocol.Login
-	if err := protocol.ReadPacket(reader, protocol.LoginId, &login); err != nil {
+	var login protocol.LoginPacket
+	if err := protocol.ExpectPacket(reader, protocol.LoginId, &login); err != nil {
 		return "", err
 	}
 
@@ -185,11 +184,11 @@ func (server *Server) addPlayer(reader *bufio.Reader, conn net.Conn, username st
 	player := newPlayer(id, server, reader, conn, username)
 	server.entities[id] = player
 
-	player.queuePacket(protocol.Marshal(protocol.LoginId, &protocol.Login{
+	player.queuePacket(&protocol.LoginPacket{
 		ProtocolVersion: id,
 		MapSeed:         server.noiseSeed,
 		Dimension:       byte(server.dimension),
-	}))
+	})
 	player.Teleport(float64(server.spawnX), float64(server.spawnY)+10.0, float64(server.spawnZ))
 
 	event := &PlayerJoinEvent{

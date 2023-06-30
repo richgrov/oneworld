@@ -56,7 +56,7 @@ func newPlayer(entityId int32, server *Server, reader *bufio.Reader, conn net.Co
 	go player.writeLoop()
 
 	server.Repeat(func() int {
-		player.queuePacket(protocol.Marshal(protocol.KeepAliveId, &protocol.KeepAlive{}))
+		player.queuePacket(&protocol.KeepAlivePacket{})
 
 		if !player.disconnected {
 			return 20 * 20
@@ -94,13 +94,13 @@ processPackets:
 // This function is also used to spawn the player into the world after they
 // login.
 func (player *Player) Teleport(x float64, y float64, z float64) {
-	player.queuePacket(protocol.Marshal(protocol.PositionId, &protocol.Position{
+	player.queuePacket(&protocol.SetPositionPacket{
 		X:        x,
 		Y:        y,
 		Stance:   0,
 		Z:        z,
 		OnGround: false,
-	}))
+	})
 
 	// Determine all the chunks that will need to be loaded at the player's new
 	// position
@@ -120,11 +120,11 @@ func (player *Player) Teleport(x float64, y float64, z float64) {
 		if _, ok := chunksInNewView[pos]; !ok {
 			delete(chunk.viewers, player)
 			delete(player.viewableChunks, pos)
-			player.queuePacket(protocol.Marshal(protocol.PreChunkId, &protocol.PreChunk{
+			player.queuePacket(&protocol.PreChunkPacket{
 				ChunkX: pos.X,
 				ChunkZ: pos.Z,
 				Load:   false,
-			}))
+			})
 		}
 	}
 
@@ -160,13 +160,13 @@ func (player *Player) Teleport(x float64, y float64, z float64) {
 }
 
 func (player *Player) sendChunk(pos level.ChunkPos, ch *chunk) {
-	player.queuePacket(protocol.Marshal(protocol.PreChunkId, &protocol.PreChunk{
+	player.queuePacket(&protocol.PreChunkPacket{
 		ChunkX: pos.X,
 		ChunkZ: pos.Z,
 		Load:   true,
-	}))
+	})
 
-	player.queuePacket(protocol.Marshal(protocol.ChunkDataId, &protocol.ChunkData{
+	player.queuePacket(&protocol.ChunkDataPacket{
 		StartX: pos.X * 16,
 		StartY: 0,
 		StartZ: pos.Z * 16,
@@ -174,19 +174,19 @@ func (player *Player) sendChunk(pos level.ChunkPos, ch *chunk) {
 		YSize:  127,
 		ZSize:  15,
 		Data:   ch.data.CompressData(),
-	}))
+	})
 }
 
 // Can safely be called even if Disconnect() was already called
-func (player *Player) queuePacket(data []byte) {
+func (player *Player) queuePacket(packet protocol.OutboundPacket) {
 	if !player.disconnected {
-		player.outboundPacketQueue <- data
+		player.outboundPacketQueue <- packet.Marshal()
 	}
 }
 
 func (player *Player) handlePacket(packet any) {
 	switch pkt := packet.(type) {
-	case *protocol.Chat:
+	case *protocol.ChatPacket:
 		if strings.HasPrefix(pkt.Message, "/") {
 			traits.CallEvent(player.traitData, &CommandEvent{
 				player:  player,
@@ -198,7 +198,7 @@ func (player *Player) handlePacket(packet any) {
 				Message: pkt.Message,
 			})
 		}
-	case *protocol.Dig:
+	case *protocol.DigPacket:
 		switch pkt.Status {
 		case 0:
 			blockType, _ := player.server.GetBlock(pkt.X, int32(pkt.Y), pkt.Z)
@@ -215,40 +215,11 @@ func (player *Player) handlePacket(packet any) {
 func (player *Player) readLoop() {
 	defer player.Disconnect()
 
-loop:
 	for {
-		id, err := player.reader.ReadByte()
+		packet, err := protocol.ReadNextPacket(player.reader)
 		if err != nil {
 			fmt.Printf("%s\n", err)
-			break loop
-		}
-
-		var packet any
-		switch id {
-		case protocol.KeepAliveId:
-			packet = &protocol.KeepAlive{}
-		case protocol.ChatId:
-			packet = &protocol.Chat{}
-		case protocol.GroundedId:
-			packet = &protocol.Grounded{}
-		case protocol.PositionId:
-			packet = &protocol.Position{}
-		case protocol.LookId:
-			packet = &protocol.Look{}
-		case protocol.LookMoveId:
-			packet = &protocol.LookMove{}
-		case protocol.DigId:
-			packet = &protocol.Dig{}
-		case protocol.AnimationId:
-			packet = &protocol.Animation{}
-		default:
-			fmt.Printf("unsupported packet id %d\n", id)
-			break loop
-		}
-
-		if err := protocol.Unmarshal(player.reader, packet); err != nil {
-			fmt.Printf("%s\n", err)
-			break loop
+			break
 		}
 		player.inboundPacketQueue <- packet
 	}
@@ -273,19 +244,19 @@ func (player *Player) Username() string {
 }
 
 func (player *Player) SendBlockChange(x int32, y int32, z int32, ty blocks.BlockType, data byte) {
-	player.queuePacket(protocol.Marshal(protocol.BlockChangeId, &protocol.BlockChange{
+	player.queuePacket(&protocol.BlockChangePacket{
 		X:    x,
 		Y:    byte(y),
 		Z:    z,
 		Type: byte(ty),
 		Data: data,
-	}))
+	})
 }
 
 func (player *Player) Message(message string) {
-	player.queuePacket(protocol.Marshal(protocol.ChatId, &protocol.Chat{
+	player.queuePacket(&protocol.ChatPacket{
 		Message: message,
-	}))
+	})
 }
 
 // Can safely be called more than once

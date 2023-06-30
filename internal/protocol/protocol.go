@@ -6,136 +6,179 @@ import (
 	"errors"
 	"io"
 	"reflect"
-	"strconv"
 	"unicode/utf16"
 )
 
-// Reads a specific packet and unmarshals the data
-func ReadPacket(reader io.Reader, expectedId byte, v any) error {
-	var b [1]byte
-	if _, err := reader.Read(b[:]); err != nil {
-		return err
-	} else if b[0] != expectedId {
-		return errors.New("unexpected id")
-	}
+var (
+	ErrInvalidBool   = errors.New("not a valid boolean value")
+	ErrInvalidString = errors.New("invalid string length")
+)
 
-	return Unmarshal(reader, v)
+type packetReader struct {
+	err error
+	r   io.Reader
 }
 
-// Decodes a struct's fields from a reader in the order they are declared
-func Unmarshal(reader io.Reader, v any) error {
-	ty := reflect.TypeOf(v).Elem()
-	val := reflect.ValueOf(v).Elem()
+func newPacketReader(r io.Reader) *packetReader {
+	return &packetReader{
+		err: nil,
+		r:   r,
+	}
+}
 
-	for i := 0; i < val.NumField(); i++ {
-		field := val.Field(i)
-		switch field.Kind() {
-		case reflect.Bool:
-			var buf [1]byte
-			if _, err := reader.Read(buf[:]); err != nil {
-				return err
-			}
-			// Minecraft protocol considers any value that is not zero as true
-			field.SetBool(buf[0] != 0)
-
-		case reflect.Uint8:
-			var buf [1]byte
-			if _, err := reader.Read(buf[:]); err != nil {
-				return err
-			}
-			field.SetUint(uint64(buf[0]))
-
-		case reflect.Int32:
-			var i int32
-			if err := binary.Read(reader, binary.BigEndian, &i); err != nil {
-				return err
-			}
-			field.SetInt(int64(i))
-
-		case reflect.Int64:
-			var i int64
-			if err := binary.Read(reader, binary.BigEndian, &i); err != nil {
-				return err
-			}
-			field.SetInt(i)
-
-		case reflect.Float32:
-			var f float32
-			if err := binary.Read(reader, binary.BigEndian, &f); err != nil {
-				return err
-			}
-			field.SetFloat(float64(f))
-
-		case reflect.Float64:
-			var f float64
-			if err := binary.Read(reader, binary.BigEndian, &f); err != nil {
-				return err
-			}
-			field.SetFloat(f)
-
-		case reflect.String:
-			tag := ty.Field(i).Tag.Get("maxLen")
-			maxLen, err := strconv.ParseUint(tag, 10, 16)
-			if err != nil {
-				return err
-			}
-
-			str, err := readString(reader, uint16(maxLen))
-			if err != nil {
-				return err
-			}
-
-			field.SetString(str)
-
-		default:
-			panic("unmarshal: unsupported field type")
-		}
+func (reader *packetReader) readByte() byte {
+	if reader.err != nil {
+		return 0
 	}
 
-	return nil
+	var buf [1]byte
+	if _, err := reader.r.Read(buf[:]); err != nil {
+		reader.err = err
+		return 0
+	}
+
+	return buf[0]
+}
+
+func (reader *packetReader) readBool() bool {
+	if reader.err != nil {
+		return false
+	}
+
+	var buf [1]byte
+	if _, err := reader.r.Read(buf[:]); err != nil {
+		reader.err = err
+		return false
+	}
+
+	if buf[0] == 0 {
+		return false
+	} else if buf[0] == 1 {
+		return true
+	} else {
+		reader.err = ErrInvalidBool
+		return false
+	}
+}
+
+func (reader *packetReader) readInt() int32 {
+	if reader.err != nil {
+		return 0
+	}
+
+	var i int32
+	if err := binary.Read(reader.r, binary.BigEndian, &i); err != nil {
+		reader.err = err
+		return 0
+	}
+	return i
+}
+
+func (reader *packetReader) readLong() int64 {
+	if reader.err != nil {
+		return 0
+	}
+
+	var i int64
+	if err := binary.Read(reader.r, binary.BigEndian, &i); err != nil {
+		reader.err = err
+		return 0
+	}
+	return i
+}
+
+func (reader *packetReader) readFloat() float32 {
+	if reader.err != nil {
+		return 0
+	}
+
+	var f float32
+	if err := binary.Read(reader.r, binary.BigEndian, &f); err != nil {
+		reader.err = err
+		return 0
+	}
+	return f
+}
+
+func (reader *packetReader) readDouble() float64 {
+	if reader.err != nil {
+		return 0
+	}
+
+	var f float64
+	if err := binary.Read(reader.r, binary.BigEndian, &f); err != nil {
+		reader.err = err
+		return 0
+	}
+	return f
+}
+
+// Reads a string encoded according to the Minecraft protocol
+func (reader *packetReader) readString(maxLen uint16) string {
+	if reader.err != nil {
+		return ""
+	}
+
+	var length int16
+	if err := binary.Read(reader.r, binary.BigEndian, &length); err != nil {
+		reader.err = err
+		return ""
+	}
+
+	if length < 0 || length > int16(maxLen) {
+		reader.err = ErrInvalidString
+		return ""
+	}
+
+	data := make([]uint16, length)
+	if err := binary.Read(reader.r, binary.BigEndian, data); err != nil {
+		reader.err = err
+		return ""
+	}
+
+	return string(utf16.Decode(data))
 }
 
 // Encodes a struct's fields in the order they are declared and returns the
 // bytes
-func Marshal(packetId byte, v any) []byte {
-	ty := reflect.TypeOf(v).Elem()
-	val := reflect.ValueOf(v).Elem()
+func marshal(packetId byte, fields ...any) []byte {
 	buf := bytes.NewBuffer(make([]byte, 0))
-	binary.Write(buf, binary.BigEndian, packetId)
+	buf.WriteByte(packetId)
 
-	for i := 0; i < val.NumField(); i++ {
-		field := val.Field(i)
-		switch field.Kind() {
+	for _, field := range fields {
+		val := reflect.ValueOf(field)
+
+		switch val.Kind() {
 		case reflect.Bool:
-			if field.Bool() {
+			if val.Bool() {
 				buf.WriteByte(1)
 			} else {
 				buf.WriteByte(0)
 			}
 
 		case reflect.Uint8:
-			buf.WriteByte(byte(field.Uint()))
+			buf.WriteByte(byte(val.Uint()))
 
 		case reflect.Int16:
-			binary.Write(buf, binary.BigEndian, int16(field.Int()))
+			binary.Write(buf, binary.BigEndian, int16(val.Int()))
 
 		case reflect.Int32:
-			binary.Write(buf, binary.BigEndian, int32(field.Int()))
+			binary.Write(buf, binary.BigEndian, int32(val.Int()))
 
 		case reflect.Int64:
-			binary.Write(buf, binary.BigEndian, field.Int())
+			binary.Write(buf, binary.BigEndian, val.Int())
 
 		case reflect.Float64:
-			binary.Write(buf, binary.BigEndian, field.Float())
+			binary.Write(buf, binary.BigEndian, val.Float())
 
 		case reflect.String:
-			writeString(buf, field.String())
+			writeString(buf, val.String())
 
 		case reflect.Slice:
-			if ty.Field(i).Type.Elem().Kind() != reflect.Uint8 {
+			if reflect.TypeOf(field).Elem().Kind() != reflect.Uint8 {
 				panic("only []byte is supported")
 			}
-			slice := field.Interface().([]byte)
+			slice := val.Interface().([]byte)
 			binary.Write(buf, binary.BigEndian, int32(len(slice)))
 			buf.Write(slice)
 
@@ -145,25 +188,6 @@ func Marshal(packetId byte, v any) []byte {
 	}
 
 	return buf.Bytes()
-}
-
-// Reads a string encoded according to the Minecraft protocol
-func readString(reader io.Reader, maxLen uint16) (string, error) {
-	var length int16
-	if err := binary.Read(reader, binary.BigEndian, &length); err != nil {
-		return "", err
-	}
-
-	if length < 0 || length > int16(maxLen) {
-		return "", errors.New("string length is invalid")
-	}
-
-	data := make([]uint16, length)
-	if err := binary.Read(reader, binary.BigEndian, data); err != nil {
-		return "", err
-	}
-
-	return string(utf16.Decode(data)), nil
 }
 
 // Writes a string encoded according to the Minecraft protocol
