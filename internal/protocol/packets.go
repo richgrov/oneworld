@@ -69,6 +69,8 @@ func ReadNextPacket(r *bufio.Reader) (any, error) {
 		return new(CloseInventoryPacket).Unmarshal(r)
 	case InventoryClickId:
 		return new(InventoryClickPacket).Unmarshal(r)
+	case DisconnectId:
+		return new(DisconnectPacket).Unmarshal(r)
 	default:
 		return nil, ErrInvalidPacketId
 	}
@@ -407,5 +409,17 @@ func (pkt *InventoryClickPacket) Unmarshal(r *bufio.Reader) (*InventoryClickPack
 		pkt.StackSize = reader.readByte()
 		pkt.Damage = reader.readShort()
 	}
+	return pkt, reader.err
+}
+
+const DisconnectId = 255
+
+type DisconnectPacket struct {
+	Message string
+}
+
+func (pkt *DisconnectPacket) Unmarshal(r *bufio.Reader) (*DisconnectPacket, error) {
+	reader := newPacketReader(r)
+	pkt.Message = reader.readString(100)
 	return pkt, reader.err
 }
