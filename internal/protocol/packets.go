@@ -255,6 +255,28 @@ func (pkt *AnimationPacket) Unmarshal(r *bufio.Reader) (*AnimationPacket, error)
 	return pkt, reader.err
 }
 
+const EntityActionId = 19
+
+type EntityAction byte
+
+const (
+	ActionStartSneak EntityAction = iota + 1
+	ActionStopSneak
+	ActionStopSleep
+)
+
+type EntityActionPacket struct {
+	EntityId int32
+	State    EntityAction
+}
+
+func (pkt *EntityActionPacket) Unmarshal(r *bufio.Reader) (*EntityActionPacket, error) {
+	reader := newPacketReader(r)
+	pkt.EntityId = reader.readInt()
+	pkt.State = EntityAction(reader.readByte())
+	return pkt, reader.err
+}
+
 const PreChunkId = 50
 
 type PreChunkPacket struct {
