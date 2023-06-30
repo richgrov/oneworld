@@ -29,6 +29,8 @@ type Player struct {
 
 	username string
 
+	items [36]ItemStack
+
 	viewableChunks map[level.ChunkPos]*chunk
 }
 
@@ -256,6 +258,17 @@ func (player *Player) SendBlockChange(x int32, y int32, z int32, ty blocks.Block
 func (player *Player) Message(message string) {
 	player.queuePacket(&protocol.ChatPacket{
 		Message: message,
+	})
+}
+
+func (player *Player) SetItem(slot byte, item *ItemStack) {
+	player.items[slot] = *item
+	player.queuePacket(&protocol.SetSlotPacket{
+		WindowId:  0,
+		Slot:      int16(slot),
+		ItemId:    int16(item.Id),
+		StackSize: item.Count,
+		Damage:    int16(item.Damage),
 	})
 }
 

@@ -412,6 +412,34 @@ func (pkt *InventoryClickPacket) Unmarshal(r *bufio.Reader) (*InventoryClickPack
 	return pkt, reader.err
 }
 
+const SetSlotId = 103
+
+type SetSlotPacket struct {
+	WindowId  byte
+	Slot      int16
+	ItemId    int16
+	StackSize byte
+	Damage    int16
+}
+
+func (pkt *SetSlotPacket) Marshal() []byte {
+	if pkt.ItemId >= 0 {
+		return marshal(SetSlotId,
+			pkt.WindowId,
+			pkt.Slot,
+			pkt.ItemId,
+			pkt.StackSize,
+			pkt.Damage,
+		)
+	} else {
+		return marshal(SetSlotId,
+			pkt.WindowId,
+			pkt.Slot,
+			pkt.ItemId,
+		)
+	}
+}
+
 const DisconnectId = 255
 
 type DisconnectPacket struct {
