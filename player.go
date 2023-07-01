@@ -29,7 +29,7 @@ type Player struct {
 
 	username string
 
-	items [36]ItemStack
+	items [45]ItemStack
 
 	viewableChunks map[level.ChunkPos]*chunk
 }
