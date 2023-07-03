@@ -13,7 +13,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/richgrov/oneworld/blocks"
 	"github.com/richgrov/oneworld/internal/level"
 	"github.com/richgrov/oneworld/internal/protocol"
 	"github.com/richgrov/oneworld/internal/util"
@@ -288,7 +287,7 @@ func (server *Server) loadChunks(positions []level.ChunkPos) {
 					continue
 				}
 
-				chunk.data = *data
+				chunk.initialize(data)
 				for player := range chunk.viewers {
 					player.sendChunk(positions[i], chunk)
 				}
@@ -305,28 +304,27 @@ func (server *Server) getChunkFromBlockPos(x int32, z int32) *chunk {
 	return ch
 }
 
-func (server *Server) GetBlock(x int32, y int32, z int32) (blocks.BlockType, byte) {
+func (server *Server) GetBlock(x int32, y int32, z int32) *Block {
 	ch := server.getChunkFromBlockPos(x, z)
 	if ch == nil || !ch.isDataLoaded() {
-		return blocks.Air, 0
+		return nil
 	}
 
 	index := chunkCoordsToIndex(util.I32Abs(x%16), y, util.I32Abs(z%16))
-	return blocks.BlockType(ch.data.Blocks[index]), ch.data.BlockData.GetNibble(int(index))
+	return &ch.blocks[index]
 }
 
-func (server *Server) SetBlock(x int32, y int32, z int32, id blocks.BlockType, data byte) bool {
+func (server *Server) SetBlock(x int32, y int32, z int32, block Block) bool {
 	ch := server.getChunkFromBlockPos(x, z)
 	if ch == nil || !ch.isDataLoaded() {
 		return false
 	}
 
 	index := chunkCoordsToIndex(util.I32Abs(x%16), y, util.I32Abs(z%16))
-	ch.data.Blocks[index] = byte(id)
-	ch.data.BlockData.SetNibble(int(index), data)
+	ch.blocks[index] = block
 
 	for player := range ch.viewers {
-		player.SendBlockChange(x, y, z, id, data)
+		player.SendBlockChange(x, y, z, block.Type(), block.Data())
 	}
 	return true
 }

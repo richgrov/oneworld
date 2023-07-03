@@ -175,7 +175,7 @@ func (player *Player) sendChunk(pos level.ChunkPos, ch *chunk) {
 		XSize:  15,
 		YSize:  127,
 		ZSize:  15,
-		Data:   ch.data.CompressData(),
+		Data:   ch.serializeToNetwork(),
 	})
 }
 
@@ -203,13 +203,13 @@ func (player *Player) handlePacket(packet any) {
 	case *protocol.DigPacket:
 		switch pkt.Status {
 		case 0:
-			blockType, _ := player.server.GetBlock(pkt.X, int32(pkt.Y), pkt.Z)
-			if blocks.Hardness(blockType) == blocks.InstaBreak {
-				player.server.SetBlock(pkt.X, int32(pkt.Y), pkt.Z, blocks.Air, 0)
+			block := player.server.GetBlock(pkt.X, int32(pkt.Y), pkt.Z)
+			if blocks.Hardness(block.Type()) == blocks.InstaBreak {
+				player.server.SetBlock(pkt.X, int32(pkt.Y), pkt.Z, Block{blocks.Air, 0})
 			}
 
 		case 2:
-			player.server.SetBlock(pkt.X, int32(pkt.Y), pkt.Z, blocks.Air, 0)
+			player.server.SetBlock(pkt.X, int32(pkt.Y), pkt.Z, Block{blocks.Air, 0})
 		}
 	}
 }

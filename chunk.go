@@ -1,6 +1,10 @@
 package oneworld
 
 import (
+	"bytes"
+	"compress/zlib"
+
+	"github.com/richgrov/oneworld/blocks"
 	"github.com/richgrov/oneworld/internal/level"
 )
 
@@ -9,8 +13,10 @@ func chunkCoordsToIndex(x int32, y int32, z int32) int32 {
 }
 
 type chunk struct {
-	data    level.ChunkData
-	viewers map[*Player]bool
+	blocks     []Block
+	blockLight []byte
+	skyLight   []byte
+	viewers    map[*Player]bool
 }
 
 func newChunk() *chunk {
@@ -20,5 +26,38 @@ func newChunk() *chunk {
 }
 
 func (ch *chunk) isDataLoaded() bool {
-	return ch.data.Blocks != nil
+	return ch.blocks != nil
+}
+
+func (ch *chunk) initialize(data *level.ChunkData) {
+	ch.blocks = make([]Block, 16*16*128)
+	for i := 0; i < len(ch.blocks); i++ {
+		ch.blocks[i].ty = blocks.BlockType(data.Blocks[i])
+		ch.blocks[i].data = data.BlockData.GetNibble(i)
+	}
+	ch.blockLight = data.BlockLight
+	ch.skyLight = data.SkyLight
+}
+
+func (ch *chunk) serializeToNetwork() []byte {
+	capacity := 16*16*128 + 16*16*64 + 16*16*64 + 16*16*64
+	data := bytes.NewBuffer(make([]byte, 0, capacity))
+
+	for _, block := range ch.blocks {
+		data.WriteByte(byte(block.Type()))
+	}
+
+	for i := 0; i < len(ch.blocks); i += 2 {
+		data.WriteByte(ch.blocks[i].Data()&0b00001111 | ch.blocks[i+1].Data()<<4)
+	}
+
+	data.Write(ch.blockLight)
+	data.Write(ch.skyLight)
+
+	var out bytes.Buffer
+	w := zlib.NewWriter(&out)
+	w.Write(data.Bytes())
+	w.Close()
+
+	return out.Bytes()
 }
