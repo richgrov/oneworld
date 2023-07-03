@@ -73,17 +73,20 @@ type schedule struct {
 	nextRun int
 }
 
-// Creates a new server instance. The tick loop is started in the background,
-// meaining this function will not block.
-//
-// `dimension` is only used by the client and has no impact on server behavior.
-func NewServer(address string, worldDir string, viewDistance uint8, dimension Dimension) (*Server, error) {
-	listener, err := net.Listen("tcp", address)
+type Config struct {
+	Address      string
+	WorldDir     string
+	ViewDistance uint8
+	Dimension    Dimension // Only used by the client
+}
+
+func NewServer(config *Config) (*Server, error) {
+	listener, err := net.Listen("tcp", config.Address)
 	if err != nil {
 		return nil, err
 	}
 
-	data, err := level.ReadLevelData(filepath.Join(worldDir, "level.dat"))
+	data, err := level.ReadLevelData(filepath.Join(config.WorldDir, "level.dat"))
 	if err != nil {
 		return nil, err
 	}
@@ -95,11 +98,11 @@ func NewServer(address string, worldDir string, viewDistance uint8, dimension Di
 		messageQueue:    make(chan func(), messageQueueBacklog),
 		traitData:       traits.NewData(reflect.TypeOf(&PlayerJoinEvent{})),
 
-		worldDir:     worldDir,
-		viewDistance: viewDistance,
+		worldDir:     config.WorldDir,
+		viewDistance: config.ViewDistance,
 
 		noiseSeed: data.RandomSeed,
-		dimension: dimension,
+		dimension: config.Dimension,
 
 		spawnX: data.SpawnX,
 		spawnY: data.SpawnY,

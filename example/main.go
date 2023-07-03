@@ -26,7 +26,13 @@ func (t *PlayerTrait) OnCommand(event *oneworld.CommandEvent) {
 }
 
 func main() {
-	server, err := oneworld.NewServer("localhost:25565", "world", 8, oneworld.Overworld)
+	server, err := oneworld.NewServer(&oneworld.Config{
+		Address:      "localhost:25565",
+		WorldDir:     "world",
+		ViewDistance: 8,
+		Dimension:    oneworld.Overworld,
+	})
+
 	if err != nil {
 		panic(err)
 	}
