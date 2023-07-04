@@ -5,12 +5,16 @@ import (
 	"bytes"
 	"compress/zlib"
 	"encoding/binary"
+	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 
 	"github.com/richgrov/oneworld/internal/util"
 )
+
+const compressionZlib = 2
 
 type ChunkPos struct {
 	X int32
@@ -24,25 +28,14 @@ type ChunkData struct {
 	SkyLight   NibbleSlice
 }
 
-// Compress chunk data to the format it is sent over Minecraft protocol
-func (chunk *ChunkData) CompressData() []byte {
-	data := bytes.NewBuffer(make([]byte, 0))
-	data.Write(chunk.Blocks)
-	data.Write(chunk.BlockData)
-	data.Write(chunk.BlockLight)
-	data.Write(chunk.SkyLight)
-
-	var out bytes.Buffer
-	w := zlib.NewWriter(&out)
-	w.Write(data.Bytes())
-	w.Close()
-
-	return out.Bytes()
+// Either `Data` or `Error` will be nil
+type ChunkReadResult struct {
+	Pos   ChunkPos
+	Data  *ChunkData
+	Error error
 }
 
-// Tries to load all chunks at the specified positions. The chunks are returned
-// in the same order they were specified
-func LoadChunks(regionDir string, chunks []ChunkPos) []*ChunkData {
+func LoadChunks(regionDir string, chunks []ChunkPos, consumer chan ChunkReadResult) {
 	files := make(map[ChunkPos]*os.File)
 	defer func() {
 		for _, file := range files {
@@ -50,121 +43,137 @@ func LoadChunks(regionDir string, chunks []ChunkPos) []*ChunkData {
 		}
 	}()
 
-	results := make([]*ChunkData, 0, len(chunks))
+	for _, chunkPos := range chunks {
+		result := ChunkReadResult{
+			Pos: chunkPos,
+		}
 
-	for i, chunkPos := range chunks {
-		// Floor divide chunk coordinates by 32
 		region := ChunkPos{
 			util.DivideAndFloorI32(chunkPos.X, 32),
 			util.DivideAndFloorI32(chunkPos.Z, 32),
 		}
-		results = append(results, &ChunkData{})
 
-		// Get cached file handle or open a new one
 		file, ok := files[region]
 		if !ok {
 			regionFile, err := os.Open(filepath.Join(regionDir, fmt.Sprintf("r.%d.%d.mcr", region.X, region.Z)))
 			if err != nil {
+				if errors.Is(err, os.ErrNotExist) {
+					// File doesn't exist- chunk simply isn't generated
+					result.Data = &ChunkData{}
+				} else {
+					result.Error = err
+				}
+				consumer <- result
 				continue
 			}
+
 			file = regionFile
 			files[region] = regionFile
 		}
 
-		offsetPos := 4 * ((chunkPos.X & 31) + (chunkPos.Z&31)*32)
-		_, err := file.Seek(int64(offsetPos), 0)
-		if err != nil {
-			fmt.Printf("%s\n", err)
-			continue
-		}
+		result.Data, result.Error = readChunk(file, chunkPos)
+		consumer <- result
+	}
+}
 
-		var offset int32
-		if err := binary.Read(file, binary.BigEndian, &offset); err != nil {
-			fmt.Printf("%s\n", err)
-			continue
-		}
-
-		chunkOffset := offset >> 8
-		chunkLength := byte(offset)
-		if chunkLength == 0 {
-			// Chunk not present in region
-			continue
-		}
-
-		_, err = file.Seek(int64(chunkOffset*1024*4), 0)
-		if err != nil {
-			fmt.Printf("%s\n", err)
-			continue
-		}
-
-		var exactLength int32
-		if err := binary.Read(file, binary.BigEndian, &exactLength); err != nil {
-			fmt.Printf("%s\n", err)
-			continue
-		}
-
-		if exactLength < 1 {
-			continue
-		}
-
-		data := make([]byte, exactLength)
-		if _, err := file.Read(data); err != nil {
-			fmt.Printf("%s\n", err)
-			continue
-		}
-
-		if data[0] != 2 {
-			println("invalid compression type")
-			continue
-		}
-
-		uncompressor, err := zlib.NewReader(bytes.NewBuffer(data[1:]))
-		if err != nil {
-			fmt.Printf("%s\n", err)
-			continue
-		}
-
-		nbt, err := readNbt(bufio.NewReader(uncompressor))
-		if err != nil {
-			fmt.Printf("%s\n", err)
-			continue
-		}
-
-		level, ok := nbt["Level"].(map[string]any)
-		if !ok {
-			fmt.Printf("chunk does not contain 'Level' tag\n")
-			continue
-		}
-
-		blocks, ok := level["Blocks"].([]byte)
-		if !ok {
-			fmt.Printf("chunk does not contain 'Blocks' tag\n")
-			continue
-		}
-
-		blockData, ok := level["Data"].([]byte)
-		if !ok {
-			fmt.Printf("chunk does not contain 'Data' tag\n")
-		}
-
-		blockLight, ok := level["BlockLight"].([]byte)
-		if !ok {
-			fmt.Printf("chunk does not contain 'BlockLight' tag\n")
-		}
-
-		skyLight, ok := level["SkyLight"].([]byte)
-		if !ok {
-			fmt.Printf("chunk does not contain 'SkyLight' tag\n")
-		}
-
-		chunkData := results[i]
-		chunkData.Blocks = blocks
-		chunkData.BlockData = blockData
-		chunkData.BlockLight = blockLight
-		chunkData.SkyLight = skyLight
+func readChunk(file *os.File, pos ChunkPos) (*ChunkData, error) {
+	offset, err := getChunkPositionInFile(file, pos)
+	if err != nil {
+		return nil, err
 	}
 
-	return results
+	// 0 offset means the chunk is not present in the region
+	if offset == 0 {
+		return &ChunkData{}, nil
+	}
+
+	_, err = file.Seek(int64(offset*1024*4 /* offset is in 4KiB sectors */), 0)
+	if err != nil {
+		return nil, err
+	}
+
+	var dataLength int32
+	if err := binary.Read(file, binary.BigEndian, &dataLength); err != nil {
+		return nil, err
+	}
+
+	data := make([]byte, dataLength)
+	if _, err := file.Read(data); err != nil {
+		return nil, err
+	}
+
+	uncompressor, err := decompressChunkData(data)
+	if err != nil {
+		return nil, err
+	}
+
+	return readChunkNbt(uncompressor)
+}
+
+func getChunkPositionInFile(file *os.File, pos ChunkPos) (int32, error) {
+	offsetPos := 4 * ((pos.X & 31) + (pos.Z&31)*32)
+	_, err := file.Seek(int64(offsetPos), 0)
+	if err != nil {
+		return 0, err
+	}
+
+	var offset int32
+	if err := binary.Read(file, binary.BigEndian, &offset); err != nil {
+		return 0, err
+	}
+
+	if offset == 0 {
+		return 0, nil
+	}
+
+	return offset >> 8, nil
+}
+
+func decompressChunkData(data []byte) (io.Reader, error) {
+	if data[0] != compressionZlib {
+		return nil, errors.New("unsupported compression type")
+	}
+
+	return zlib.NewReader(bytes.NewBuffer(data[1:]))
+}
+
+func readChunkNbt(r io.Reader) (*ChunkData, error) {
+	nbt, err := readNbt(bufio.NewReader(r))
+	if err != nil {
+		return nil, err
+	}
+
+	level, ok := nbt["Level"].(map[string]any)
+	if !ok {
+		return nil, errors.New("missing 'Level' tag")
+	}
+
+	blocks, ok := level["Blocks"].([]byte)
+	if !ok {
+		return nil, errors.New("missing 'Blocks' tag")
+	}
+
+	blockData, ok := level["Data"].([]byte)
+	if !ok {
+		return nil, errors.New("missing 'Data' tag")
+	}
+
+	blockLight, ok := level["BlockLight"].([]byte)
+	if !ok {
+		return nil, errors.New("missing 'BlockLight' tag")
+	}
+
+	skyLight, ok := level["SkyLight"].([]byte)
+	if !ok {
+		return nil, errors.New("missing 'SkyLight' tag")
+	}
+
+	return &ChunkData{
+		Blocks:     blocks,
+		BlockData:  blockData,
+		BlockLight: blockLight,
+		SkyLight:   skyLight,
+	}, nil
 }
 
 type NibbleSlice []byte

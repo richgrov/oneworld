@@ -61,7 +61,8 @@ type Server struct {
 	// - The chunk along with all its data is loaded and valid
 	//
 	// The map should never contain a key pointing to nil.
-	chunks map[level.ChunkPos]*chunk
+	chunks            map[level.ChunkPos]*chunk
+	chunkLoadConsumer chan level.ChunkReadResult
 
 	currentTick int
 	schedules   list.List
@@ -110,7 +111,8 @@ func NewServer(config *Config) (*Server, error) {
 		entities:     make(map[int32]Entity),
 		nextEntityId: 0,
 
-		chunks: make(map[level.ChunkPos]*chunk),
+		chunks:            make(map[level.ChunkPos]*chunk),
+		chunkLoadConsumer: make(chan level.ChunkReadResult, config.ViewDistance*config.ViewDistance),
 
 		currentTick: 0,
 		schedules:   list.List{},
@@ -218,6 +220,7 @@ func (server *Server) tickLoop() {
 		server.drainMessageQueue()
 		server.tickEntities()
 		server.tickSchedules()
+		server.addLoadedChunks()
 
 		server.currentTick++
 	}
@@ -265,6 +268,39 @@ func (server *Server) tickSchedules() {
 	}
 }
 
+func (server *Server) addLoadedChunks() {
+	for {
+		select {
+		case result := <-server.chunkLoadConsumer:
+			chunk := server.chunks[result.Pos]
+
+			if result.Error != nil {
+				for player := range chunk.viewers {
+					delete(player.viewableChunks, result.Pos)
+				}
+				delete(server.chunks, result.Pos)
+				fmt.Printf("%s", result.Error)
+				continue
+			}
+
+			// TODO: Until chunk generator is implemented, just set the chunk to air
+			if result.Data.Blocks == nil {
+				result.Data.Blocks = make([]byte, 16*16*128)
+				result.Data.BlockData = level.NibbleSlice(make([]byte, 16*16*64))
+				result.Data.BlockLight = level.NibbleSlice(make([]byte, 16*16*64))
+				result.Data.SkyLight = level.NibbleSlice(make([]byte, 16*16*64))
+			}
+
+			chunk.initialize(result.Data)
+			for player := range chunk.viewers {
+				player.sendChunk(result.Pos, chunk)
+			}
+		default:
+			return
+		}
+	}
+}
+
 // Gets the next available entity ID
 func (server *Server) newEntityId() int32 {
 	id := server.nextEntityId
@@ -277,29 +313,7 @@ func (server *Server) newEntityId() int32 {
 }
 
 func (server *Server) loadChunks(positions []level.ChunkPos) {
-	go func() {
-		chunks := level.LoadChunks(filepath.Join(server.worldDir, "region"), positions)
-
-		server.messageQueue <- func() {
-			for i, data := range chunks {
-				chunk := server.chunks[positions[i]]
-
-				if data.BlockData == nil {
-					// If an error ocurred, remove the chunk from all memory locations
-					for player := range chunk.viewers {
-						delete(player.viewableChunks, positions[i])
-					}
-					delete(server.chunks, positions[i])
-					continue
-				}
-
-				chunk.initialize(data)
-				for player := range chunk.viewers {
-					player.sendChunk(positions[i], chunk)
-				}
-			}
-		}
-	}()
+	go level.LoadChunks(filepath.Join(server.worldDir, "region"), positions, server.chunkLoadConsumer)
 }
 
 func (server *Server) getChunkFromBlockPos(x int32, z int32) *chunk {
