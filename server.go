@@ -215,47 +215,53 @@ func (server *Server) tickLoop() {
 			return
 		}
 
-		// Drain message queue
-	messageQueue:
-		for {
-			select {
-			case message := <-server.messageQueue:
-				message()
-			default:
-				break messageQueue
-			}
-		}
-
-		// Tick entities
-		for _, entity := range server.entities {
-			entity.Tick()
-		}
-
-		// Tick schedules
-		e := server.schedules.Front()
-		for {
-			if e == nil {
-				break
-			}
-
-			sched := e.Value.(*schedule)
-			if sched.nextRun == server.currentTick {
-				nextRunDelay := sched.fn()
-
-				if nextRunDelay <= 0 {
-					next := e.Next()
-					server.schedules.Remove(e)
-					e = next
-					continue
-				}
-
-				sched.nextRun += nextRunDelay
-			}
-
-			e = e.Next()
-		}
+		server.drainMessageQueue()
+		server.tickEntities()
+		server.tickSchedules()
 
 		server.currentTick++
+	}
+}
+
+func (server *Server) drainMessageQueue() {
+	for {
+		select {
+		case message := <-server.messageQueue:
+			message()
+		default:
+			return
+		}
+	}
+}
+
+func (server *Server) tickEntities() {
+	for _, entity := range server.entities {
+		entity.Tick()
+	}
+}
+
+func (server *Server) tickSchedules() {
+	e := server.schedules.Front()
+	for {
+		if e == nil {
+			break
+		}
+
+		sched := e.Value.(*schedule)
+		if sched.nextRun == server.currentTick {
+			nextRunDelay := sched.fn()
+
+			if nextRunDelay <= 0 {
+				next := e.Next()
+				server.schedules.Remove(e)
+				e = next
+				continue
+			}
+
+			sched.nextRun += nextRunDelay
+		}
+
+		e = e.Next()
 	}
 }
 
