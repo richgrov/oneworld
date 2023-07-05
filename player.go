@@ -74,6 +74,10 @@ func (player *Player) Id() int32 {
 	return player.id
 }
 
+func (player *Player) Server() *Server {
+	return player.server
+}
+
 func (player *Player) TraitData() *traits.TraitData {
 	return player.traitData
 }
