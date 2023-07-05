@@ -8,14 +8,13 @@ import (
 	"io"
 	"math"
 	"net"
-	"path/filepath"
 	"reflect"
 	"sync"
 	"time"
 
-	"github.com/richgrov/oneworld/internal/level"
 	"github.com/richgrov/oneworld/internal/protocol"
 	"github.com/richgrov/oneworld/internal/util"
+	"github.com/richgrov/oneworld/level"
 	"github.com/richgrov/oneworld/traits"
 )
 
@@ -35,7 +34,7 @@ type Server struct {
 	messageQueue chan func()
 	traitData    *traits.TraitData
 
-	worldDir     string
+	worldLoader  worldLoader
 	viewDistance uint8
 
 	// Below two variables have no server use. Only sent to client
@@ -68,6 +67,11 @@ type Server struct {
 	schedules   list.List
 }
 
+type worldLoader interface {
+	ReadWorldInfo() (level.WorldInfo, error)
+	LoadChunks([]level.ChunkPos, chan level.ChunkReadResult)
+}
+
 type schedule struct {
 	fn      func() int
 	nextRun int
@@ -78,15 +82,21 @@ type Config struct {
 	WorldDir     string
 	ViewDistance uint8
 	Dimension    Dimension // Only used by the client
+	// If nil, chunk loading from disk will not occurr. See also [level.McRegionLoader]
+	WorldLoader worldLoader
 }
 
 func NewServer(config *Config) (*Server, error) {
-	listener, err := net.Listen("tcp", config.Address)
-	if err != nil {
-		return nil, err
+	worldInfo := level.WorldInfo{}
+	if config.WorldLoader != nil {
+		info, err := config.WorldLoader.ReadWorldInfo()
+		if err != nil {
+			return nil, fmt.Errorf("error loading world info: %w", err)
+		}
+		worldInfo = info
 	}
 
-	data, err := level.ReadLevelData(filepath.Join(config.WorldDir, "level.dat"))
+	listener, err := net.Listen("tcp", config.Address)
 	if err != nil {
 		return nil, err
 	}
@@ -98,15 +108,15 @@ func NewServer(config *Config) (*Server, error) {
 		messageQueue:    make(chan func(), messageQueueBacklog),
 		traitData:       traits.NewData(reflect.TypeOf(&PlayerJoinEvent{})),
 
-		worldDir:     config.WorldDir,
+		worldLoader:  config.WorldLoader,
 		viewDistance: config.ViewDistance,
 
-		noiseSeed: data.RandomSeed,
+		noiseSeed: worldInfo.BiomeSeed,
 		dimension: config.Dimension,
 
-		spawnX: data.SpawnX,
-		spawnY: data.SpawnY,
-		spawnZ: data.SpawnZ,
+		spawnX: worldInfo.SpawnX,
+		spawnY: worldInfo.SpawnY,
+		spawnZ: worldInfo.SpawnZ,
 
 		entities:     make(map[int32]Entity),
 		nextEntityId: 0,
@@ -285,10 +295,11 @@ func (server *Server) addLoadedChunks() {
 
 			// TODO: Until chunk generator is implemented, just set the chunk to air
 			if result.Data.Blocks == nil {
-				result.Data.Blocks = make([]byte, 16*16*128)
-				result.Data.BlockData = level.NibbleSlice(make([]byte, 16*16*64))
-				result.Data.BlockLight = level.NibbleSlice(make([]byte, 16*16*64))
-				result.Data.SkyLight = level.NibbleSlice(make([]byte, 16*16*64))
+				empty := make([]byte, level.ChunkSize)
+				result.Data.Blocks = empty
+				result.Data.BlockData = empty
+				result.Data.BlockLight = empty
+				result.Data.SkyLight = empty
 			}
 
 			chunk.initialize(result.Data)
@@ -313,7 +324,7 @@ func (server *Server) newEntityId() int32 {
 }
 
 func (server *Server) loadChunks(positions []level.ChunkPos) {
-	go level.LoadChunks(filepath.Join(server.worldDir, "region"), positions, server.chunkLoadConsumer)
+	go server.worldLoader.LoadChunks(positions, server.chunkLoadConsumer)
 }
 
 func (server *Server) getChunkFromBlockPos(x int32, z int32) *chunk {

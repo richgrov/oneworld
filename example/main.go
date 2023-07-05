@@ -5,6 +5,7 @@ import (
 	"os"
 
 	"github.com/richgrov/oneworld"
+	"github.com/richgrov/oneworld/level"
 	"github.com/richgrov/oneworld/traits"
 )
 
@@ -31,6 +32,7 @@ func main() {
 		WorldDir:     "world",
 		ViewDistance: 8,
 		Dimension:    oneworld.Overworld,
+		WorldLoader:  &level.McRegionLoader{"world"},
 	})
 
 	if err != nil {

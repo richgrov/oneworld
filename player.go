@@ -8,8 +8,8 @@ import (
 	"strings"
 
 	"github.com/richgrov/oneworld/blocks"
-	"github.com/richgrov/oneworld/internal/level"
 	"github.com/richgrov/oneworld/internal/protocol"
+	"github.com/richgrov/oneworld/level"
 	"github.com/richgrov/oneworld/traits"
 )
 

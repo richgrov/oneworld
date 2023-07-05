@@ -3,12 +3,15 @@ package level
 import (
 	"bufio"
 	"bytes"
+	"compress/gzip"
 	"compress/zlib"
 	"encoding/binary"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"os"
+	"path"
 	"path/filepath"
 
 	"github.com/richgrov/oneworld/internal/util"
@@ -16,26 +19,57 @@ import (
 
 const compressionZlib = 2
 
-type ChunkPos struct {
-	X int32
-	Z int32
+type McRegionLoader struct {
+	WorldDir string
 }
 
-type ChunkData struct {
-	Blocks     []byte
-	BlockData  NibbleSlice
-	BlockLight NibbleSlice
-	SkyLight   NibbleSlice
+type McRegionLevelData struct {
+	SpawnX     int32
+	SpawnY     int32
+	SpawnZ     int32
+	RandomSeed int64
 }
 
-// Either `Data` or `Error` will be nil
-type ChunkReadResult struct {
-	Pos   ChunkPos
-	Data  *ChunkData
-	Error error
+func (loader *McRegionLoader) ReadWorldInfo() (WorldInfo, error) {
+	info := WorldInfo{}
+
+	file, err := os.Open(path.Join(loader.WorldDir, "level.dat"))
+	defer file.Close()
+	if err != nil {
+		return info, err
+	}
+
+	gzipReader, err := gzip.NewReader(file)
+	if err != nil {
+		return info, err
+	}
+	parsed, err := readNbt(bufio.NewReader(gzipReader))
+	if err != nil {
+		return info, err
+	}
+
+	data, ok := parsed["Data"].(map[string]any)
+	if !ok {
+		return info, errors.New("file does not contain 'Data' tag")
+	}
+
+	// Lazy unmarshal by recoding as json
+	encoded, err := json.Marshal(data)
+	if err != nil {
+		return info, err
+	}
+
+	var level McRegionLevelData
+	err = json.Unmarshal(encoded, &level)
+	info.SpawnX = level.SpawnX
+	info.SpawnY = level.SpawnY
+	info.SpawnZ = level.SpawnZ
+	info.BiomeSeed = level.RandomSeed
+
+	return info, err
 }
 
-func LoadChunks(regionDir string, chunks []ChunkPos, consumer chan ChunkReadResult) {
+func (loader *McRegionLoader) LoadChunks(chunks []ChunkPos, consumer chan ChunkReadResult) {
 	files := make(map[ChunkPos]*os.File)
 	defer func() {
 		for _, file := range files {
@@ -45,7 +79,7 @@ func LoadChunks(regionDir string, chunks []ChunkPos, consumer chan ChunkReadResu
 
 	for _, chunkPos := range chunks {
 		result := ChunkReadResult{
-			Pos: chunkPos,
+			Pos: ChunkPos(chunkPos),
 		}
 
 		region := ChunkPos{
@@ -55,7 +89,7 @@ func LoadChunks(regionDir string, chunks []ChunkPos, consumer chan ChunkReadResu
 
 		file, ok := files[region]
 		if !ok {
-			regionFile, err := os.Open(filepath.Join(regionDir, fmt.Sprintf("r.%d.%d.mcr", region.X, region.Z)))
+			regionFile, err := os.Open(filepath.Join(loader.WorldDir, "region", fmt.Sprintf("r.%d.%d.mcr", region.X, region.Z)))
 			if err != nil {
 				if errors.Is(err, os.ErrNotExist) {
 					// File doesn't exist- chunk simply isn't generated
@@ -170,28 +204,17 @@ func readChunkNbt(r io.Reader) (*ChunkData, error) {
 
 	return &ChunkData{
 		Blocks:     blocks,
-		BlockData:  blockData,
-		BlockLight: blockLight,
-		SkyLight:   skyLight,
+		BlockData:  nibblesToBytes(blockData),
+		BlockLight: nibblesToBytes(blockLight),
+		SkyLight:   nibblesToBytes(skyLight),
 	}, nil
 }
 
-type NibbleSlice []byte
-
-func (slice NibbleSlice) GetNibble(index int) byte {
-	byteIndex := index >> 1
-	if index%2 == 0 {
-		return slice[byteIndex] & 0b00001111
-	} else {
-		return slice[byteIndex] >> 4
+func nibblesToBytes(nibbles []byte) []byte {
+	buf := make([]byte, len(nibbles)*2)
+	for i, b := range nibbles {
+		buf[i*2] = b & 0b00001111
+		buf[i*2+1] = b >> 4
 	}
-}
-
-func (slice NibbleSlice) SetNibble(index int, value byte) {
-	byteIndex := index >> 1
-	if index%2 == 0 {
-		slice[byteIndex] = slice[byteIndex]&0b11110000 | value&0b00001111
-	} else {
-		slice[byteIndex] = slice[byteIndex] & 0b00001111 & value << 4
-	}
+	return buf
 }

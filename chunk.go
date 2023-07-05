@@ -5,7 +5,7 @@ import (
 	"compress/zlib"
 
 	"github.com/richgrov/oneworld/blocks"
-	"github.com/richgrov/oneworld/internal/level"
+	"github.com/richgrov/oneworld/level"
 )
 
 func chunkCoordsToIndex(x int32, y int32, z int32) int32 {
@@ -33,7 +33,7 @@ func (ch *chunk) initialize(data *level.ChunkData) {
 	ch.blocks = make([]Block, 16*16*128)
 	for i := 0; i < len(ch.blocks); i++ {
 		ch.blocks[i].ty = blocks.BlockType(data.Blocks[i])
-		ch.blocks[i].data = data.BlockData.GetNibble(i)
+		ch.blocks[i].data = data.BlockData[i]
 	}
 	ch.blockLight = data.BlockLight
 	ch.skyLight = data.SkyLight
@@ -51,8 +51,8 @@ func (ch *chunk) serializeToNetwork() []byte {
 		data.WriteByte(ch.blocks[i].Data()&0b00001111 | ch.blocks[i+1].Data()<<4)
 	}
 
-	data.Write(ch.blockLight)
-	data.Write(ch.skyLight)
+	packToNibbleArray(ch.blockLight, data)
+	packToNibbleArray(ch.skyLight, data)
 
 	var out bytes.Buffer
 	w := zlib.NewWriter(&out)
@@ -60,4 +60,10 @@ func (ch *chunk) serializeToNetwork() []byte {
 	w.Close()
 
 	return out.Bytes()
+}
+
+func packToNibbleArray(buf []byte, out *bytes.Buffer) {
+	for i := 0; i < len(buf); i += 2 {
+		out.WriteByte(buf[i]&0b00001111 | buf[i+1]<<4)
+	}
 }
