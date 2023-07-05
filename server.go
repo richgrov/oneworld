@@ -205,7 +205,7 @@ func (server *Server) addPlayer(reader *bufio.Reader, conn net.Conn, username st
 	player.Teleport(float64(server.spawnX), float64(server.spawnY)+10.0, float64(server.spawnZ))
 
 	event := &PlayerJoinEvent{
-		player: player,
+		Player: player,
 	}
 	traits.CallEvent(server.traitData, event)
 }

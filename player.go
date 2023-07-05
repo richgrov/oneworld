@@ -191,12 +191,12 @@ func (player *Player) handlePacket(packet any) {
 	case *protocol.ChatPacket:
 		if strings.HasPrefix(pkt.Message, "/") {
 			traits.CallEvent(player.traitData, &CommandEvent{
-				player:  player,
+				Player:  player,
 				Command: strings.TrimPrefix(pkt.Message, "/"),
 			})
 		} else {
 			traits.CallEvent(player.traitData, &ChatEvent{
-				player:  player,
+				Player:  player,
 				Message: pkt.Message,
 			})
 		}
