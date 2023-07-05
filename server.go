@@ -294,11 +294,7 @@ func (server *Server) addLoadedChunks() {
 
 			// TODO: Until chunk generator is implemented, just set the chunk to air
 			if result.Data.Blocks == nil {
-				empty := make([]byte, level.ChunkSize)
-				result.Data.Blocks = empty
-				result.Data.BlockData = empty
-				result.Data.BlockLight = empty
-				result.Data.SkyLight = empty
+				result.Data.InitializeToAir()
 			}
 
 			chunk.initialize(result.Data)
