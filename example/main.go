@@ -29,7 +29,6 @@ func (t *PlayerTrait) OnCommand(event *oneworld.CommandEvent) {
 func main() {
 	server, err := oneworld.NewServer(&oneworld.Config{
 		Address:      "localhost:25565",
-		WorldDir:     "world",
 		ViewDistance: 8,
 		Dimension:    oneworld.Overworld,
 		WorldLoader:  &level.McRegionLoader{"world"},

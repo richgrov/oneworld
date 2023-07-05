@@ -79,7 +79,6 @@ type schedule struct {
 
 type Config struct {
 	Address      string
-	WorldDir     string
 	ViewDistance uint8
 	Dimension    Dimension // Only used by the client
 	// If nil, chunk loading from disk will not occurr. See also [level.McRegionLoader]
