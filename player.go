@@ -204,6 +204,7 @@ func (player *Player) handlePacket(packet any) {
 				Message: pkt.Message,
 			})
 		}
+
 	case *protocol.DigPacket:
 		switch pkt.Status {
 		case 0:
@@ -214,6 +215,33 @@ func (player *Player) handlePacket(packet any) {
 
 		case 2:
 			player.server.SetBlock(pkt.X, int32(pkt.Y), pkt.Z, Block{blocks.Air, 0})
+		}
+
+	case *protocol.UseItemPacket:
+		if pkt.ItemId != -1 {
+			x := pkt.X
+			y := int32(pkt.Y)
+			z := pkt.Z
+
+			switch pkt.Direction {
+			case protocol.Under:
+				y--
+			case protocol.Above:
+				y++
+			case protocol.NegativeZ:
+				z--
+			case protocol.PositiveZ:
+				z++
+			case protocol.NegativeX:
+				x--
+			case protocol.PositiveX:
+				x++
+			}
+
+			player.server.SetBlock(x, y, z, Block{
+				blocks.BlockType(pkt.ItemId),
+				byte(pkt.Damage),
+			})
 		}
 	}
 }

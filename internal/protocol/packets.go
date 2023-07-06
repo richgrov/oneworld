@@ -253,11 +253,23 @@ func (pkt *DigPacket) Unmarshal(r *bufio.Reader) (*DigPacket, error) {
 
 const UseItemId = 15
 
+type PlaceDirection byte
+
+const (
+	Under PlaceDirection = iota
+	Above
+	NegativeZ
+	PositiveZ
+	NegativeX
+	PositiveX
+	None PlaceDirection = 255
+)
+
 type UseItemPacket struct {
 	X         int32
 	Y         byte
 	Z         int32
-	Direction byte
+	Direction PlaceDirection
 	ItemId    int16
 	StackSize byte
 	Damage    int16
@@ -268,7 +280,7 @@ func (pkt *UseItemPacket) Unmarshal(r *bufio.Reader) (*UseItemPacket, error) {
 	pkt.X = reader.readInt()
 	pkt.Y = reader.readByte()
 	pkt.Z = reader.readInt()
-	pkt.Direction = reader.readByte()
+	pkt.Direction = PlaceDirection(reader.readByte())
 	pkt.ItemId = reader.readShort()
 	if pkt.ItemId >= 0 {
 		pkt.StackSize = reader.readByte()
