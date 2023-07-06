@@ -3,7 +3,7 @@ package nbt
 import (
 	"bufio"
 	"encoding/binary"
-	"errors"
+	"fmt"
 	"io"
 	"reflect"
 )
@@ -25,19 +25,17 @@ const (
 )
 
 func Unmarshal(reader *bufio.Reader, v any) error {
-	val := reflect.ValueOf(v).Elem()
-
 	if tag, err := reader.ReadByte(); err != nil {
 		return err
 	} else if tag != tagCompound {
-		return errors.New("expected NBT compound")
+		return fmt.Errorf("expected root tag to be compound (%d), but got %d", tagCompound, tag)
 	}
 
 	if _, err := readString(reader); err != nil {
 		return err
 	}
 
-	return unmarshalCompound(reader, val)
+	return unmarshalCompound(reader, reflect.ValueOf(v))
 }
 
 func readString(reader io.Reader) (string, error) {
@@ -55,14 +53,22 @@ func readString(reader io.Reader) (string, error) {
 }
 
 func unmarshalCompound(reader *bufio.Reader, v reflect.Value) error {
-	if v.IsValid() && v.Kind() != reflect.Struct {
-		return errors.New("expected struct type")
+	if v.IsValid() {
+		if v.Kind() == reflect.Pointer {
+			v = v.Elem()
+		}
+
+		if v.Kind() != reflect.Struct {
+			return fmt.Errorf("tried to unmarshal compound into %s", v.Type().String())
+		}
 	}
+
+	unmarshalledFields := 0
 
 	for {
 		tag, err := reader.ReadByte()
 		if err != nil {
-			return nil
+			return err
 		}
 
 		if tag == tagEnd {
@@ -77,11 +83,16 @@ func unmarshalCompound(reader *bufio.Reader, v reflect.Value) error {
 		var field reflect.Value
 		if v.IsValid() {
 			field = v.FieldByName(key)
+			unmarshalledFields++
 		}
 
 		if err := unmarshalValue(tag, reader, field); err != nil {
 			return err
 		}
+	}
+
+	if v.IsValid() && unmarshalledFields < v.NumField() {
+		return fmt.Errorf("struct %s has %d fields but NBT compound only had %d", v.Type().String(), v.NumField(), unmarshalledFields)
 	}
 
 	return nil
@@ -105,6 +116,10 @@ func unmarshalList(reader *bufio.Reader, val reflect.Value) error {
 	var list reflect.Value
 	if val.IsValid() {
 		list = reflect.MakeSlice(val.Type().Elem(), int(listLen), int(listLen))
+
+		if val.Type() != list.Type() {
+			return fmt.Errorf("tried to assign %s to %s", list.Type().String(), val.Type().String())
+		}
 	}
 
 	for i := 0; i < int(listLen); i++ {
@@ -135,14 +150,15 @@ func unmarshalPrimitiveArray[T any](reader io.Reader) (reflect.Value, error) {
 		if _, err := io.ReadFull(reader, byteArray); err != nil {
 			return reflect.Value{}, err
 		}
-	} else {
-		for i := 0; i < int(arrLen); i++ {
-			var entry T
-			if err := binary.Read(reader, binary.BigEndian, &entry); err != nil {
-				return reflect.Value{}, err
-			}
-			data = append(data, entry)
+		return reflect.ValueOf(byteArray), nil
+	}
+
+	for i := 0; i < int(arrLen); i++ {
+		var entry T
+		if err := binary.Read(reader, binary.BigEndian, &entry); err != nil {
+			return reflect.Value{}, err
 		}
+		data = append(data, entry)
 	}
 
 	return reflect.ValueOf(data), nil
@@ -229,12 +245,12 @@ func unmarshalValue(tag byte, reader *bufio.Reader, val reflect.Value) error {
 		newVal = arr
 
 	default:
-		return errors.New("invalid tag type")
+		return fmt.Errorf("unsupported NBT tag %d", tag)
 	}
 
 	if val.IsValid() {
 		if val.Type() != newVal.Type() {
-			return errors.New("type mismatch")
+			return fmt.Errorf("tried to assign %s to %s", newVal.Type().String(), val.Type().String())
 		}
 
 		val.Set(newVal)
