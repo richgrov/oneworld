@@ -6,15 +6,14 @@ import (
 	"compress/gzip"
 	"compress/zlib"
 	"encoding/binary"
-	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"os"
 	"path"
 	"path/filepath"
 
 	"github.com/richgrov/oneworld/internal/util"
+	"github.com/richgrov/oneworld/nbt"
 )
 
 const compressionZlib = 2
@@ -23,11 +22,26 @@ type McRegionLoader struct {
 	WorldDir string
 }
 
+type McRegionLevelFile struct {
+	Data McRegionLevelData
+}
+
 type McRegionLevelData struct {
 	SpawnX     int32
 	SpawnY     int32
 	SpawnZ     int32
 	RandomSeed int64
+}
+
+type McRegionChunkContainer struct {
+	Level McRegionChunkData
+}
+
+type McRegionChunkData struct {
+	Blocks     []byte
+	Data       []byte
+	BlockLight []byte
+	SkyLight   []byte
 }
 
 func (loader *McRegionLoader) ReadWorldInfo() (WorldInfo, error) {
@@ -43,29 +57,16 @@ func (loader *McRegionLoader) ReadWorldInfo() (WorldInfo, error) {
 	if err != nil {
 		return info, err
 	}
-	parsed, err := readNbt(bufio.NewReader(gzipReader))
-	if err != nil {
+
+	var level McRegionLevelFile
+	if err := nbt.Unmarshal(bufio.NewReader(gzipReader), &level); err != nil {
 		return info, err
 	}
 
-	data, ok := parsed["Data"].(map[string]any)
-	if !ok {
-		return info, errors.New("file does not contain 'Data' tag")
-	}
-
-	// Lazy unmarshal by recoding as json
-	encoded, err := json.Marshal(data)
-	if err != nil {
-		return info, err
-	}
-
-	var level McRegionLevelData
-	err = json.Unmarshal(encoded, &level)
-	info.SpawnX = level.SpawnX
-	info.SpawnY = level.SpawnY
-	info.SpawnZ = level.SpawnZ
-	info.BiomeSeed = level.RandomSeed
-
+	info.SpawnX = level.Data.SpawnX
+	info.SpawnY = level.Data.SpawnY
+	info.SpawnZ = level.Data.SpawnZ
+	info.BiomeSeed = level.Data.RandomSeed
 	return info, err
 }
 
@@ -136,12 +137,7 @@ func readChunk(file *os.File, pos ChunkPos) (*ChunkData, error) {
 		return nil, err
 	}
 
-	uncompressor, err := decompressChunkData(data)
-	if err != nil {
-		return nil, err
-	}
-
-	return readChunkNbt(uncompressor)
+	return parseChunkData(data)
 }
 
 func getChunkPositionInFile(file *os.File, pos ChunkPos) (int32, error) {
@@ -163,50 +159,26 @@ func getChunkPositionInFile(file *os.File, pos ChunkPos) (int32, error) {
 	return offset >> 8, nil
 }
 
-func decompressChunkData(data []byte) (io.Reader, error) {
+func parseChunkData(data []byte) (*ChunkData, error) {
 	if data[0] != compressionZlib {
 		return nil, errors.New("unsupported compression type")
 	}
 
-	return zlib.NewReader(bytes.NewBuffer(data[1:]))
-}
-
-func readChunkNbt(r io.Reader) (*ChunkData, error) {
-	nbt, err := readNbt(bufio.NewReader(r))
+	reader, err := zlib.NewReader(bytes.NewBuffer(data[1:]))
 	if err != nil {
 		return nil, err
 	}
 
-	level, ok := nbt["Level"].(map[string]any)
-	if !ok {
-		return nil, errors.New("missing 'Level' tag")
-	}
-
-	blocks, ok := level["Blocks"].([]byte)
-	if !ok {
-		return nil, errors.New("missing 'Blocks' tag")
-	}
-
-	blockData, ok := level["Data"].([]byte)
-	if !ok {
-		return nil, errors.New("missing 'Data' tag")
-	}
-
-	blockLight, ok := level["BlockLight"].([]byte)
-	if !ok {
-		return nil, errors.New("missing 'BlockLight' tag")
-	}
-
-	skyLight, ok := level["SkyLight"].([]byte)
-	if !ok {
-		return nil, errors.New("missing 'SkyLight' tag")
+	var chunk McRegionChunkContainer
+	if err := nbt.Unmarshal(bufio.NewReader(reader), &chunk); err != nil {
+		return nil, err
 	}
 
 	return &ChunkData{
-		Blocks:     blocks,
-		BlockData:  nibblesToBytes(blockData),
-		BlockLight: nibblesToBytes(blockLight),
-		SkyLight:   nibblesToBytes(skyLight),
+		Blocks:     chunk.Level.Blocks,
+		BlockData:  nibblesToBytes(chunk.Level.Data),
+		BlockLight: nibblesToBytes(chunk.Level.BlockLight),
+		SkyLight:   nibblesToBytes(chunk.Level.SkyLight),
 	}, nil
 }
 
