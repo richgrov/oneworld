@@ -202,7 +202,7 @@ func (server *Server) addPlayer(reader *bufio.Reader, conn net.Conn, username st
 		MapSeed:         server.noiseSeed,
 		Dimension:       byte(server.dimension),
 	})
-	player.Teleport(float64(server.spawnX), float64(server.spawnY)+10.0, float64(server.spawnZ))
+	player.Teleport(float64(server.spawnX), float64(server.spawnY)+5.0, float64(server.spawnZ))
 
 	event := &PlayerJoinEvent{
 		Player: player,
