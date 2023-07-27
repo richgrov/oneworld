@@ -115,7 +115,7 @@ func unmarshalList(reader *bufio.Reader, val reflect.Value) error {
 
 	var list reflect.Value
 	if val.IsValid() {
-		list = reflect.MakeSlice(val.Type().Elem(), int(listLen), int(listLen))
+		list = reflect.MakeSlice(val.Type(), int(listLen), int(listLen))
 
 		if val.Type() != list.Type() {
 			return fmt.Errorf("tried to assign %s to %s", list.Type().String(), val.Type().String())
