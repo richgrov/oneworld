@@ -146,19 +146,8 @@ func unmarshalPrimitiveArray[T any](reader io.Reader) (reflect.Value, error) {
 	}
 
 	data := make([]T, arrLen)
-	if byteArray, ok := any(data).([]byte); ok {
-		if _, err := io.ReadFull(reader, byteArray); err != nil {
-			return reflect.Value{}, err
-		}
-		return reflect.ValueOf(byteArray), nil
-	}
-
-	for i := 0; i < int(arrLen); i++ {
-		var entry T
-		if err := binary.Read(reader, binary.BigEndian, &entry); err != nil {
-			return reflect.Value{}, err
-		}
-		data = append(data, entry)
+	if err := binary.Read(reader, binary.BigEndian, data); err != nil {
+		return reflect.Value{}, err
 	}
 
 	return reflect.ValueOf(data), nil
