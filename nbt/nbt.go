@@ -87,7 +87,7 @@ func unmarshalCompound(reader *bufio.Reader, v reflect.Value) error {
 		}
 
 		if err := unmarshalValue(tag, reader, field); err != nil {
-			return err
+			return fmt.Errorf("in field %s: %w", key, err)
 		}
 	}
 
