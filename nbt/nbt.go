@@ -5,6 +5,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"io"
+	"math"
 	"reflect"
 )
 
@@ -246,4 +247,172 @@ func unmarshalValue(tag byte, reader *bufio.Reader, val reflect.Value) error {
 	}
 
 	return nil
+}
+
+func Marshal(v any, tagName string, w io.Writer) error {
+	if _, err := w.Write([]byte{tagCompound}); err != nil {
+		return err
+	}
+
+	if err := writeString(w, tagName); err != nil {
+		return err
+	}
+
+	return marshalCompound(w, reflect.ValueOf(v))
+}
+
+func writeString(w io.Writer, val string) error {
+	if len(val) > math.MaxUint16 {
+		return fmt.Errorf("string length %d exceeds maximum %d", len(val), math.MaxUint16)
+	}
+
+	if err := binary.Write(w, binary.BigEndian, uint16(len(val))); err != nil {
+		return err
+	}
+
+	_, err := w.Write([]byte(val))
+	return err
+}
+
+func marshalList(w io.Writer, v reflect.Value) error {
+	if err := writeTag(w, v.Type().Elem()); err != nil {
+		return err
+	}
+
+	listLen := v.Len()
+	if listLen > math.MaxInt32 {
+		return fmt.Errorf("list length %d is greater than maximum encodable %d", listLen, math.MaxInt32)
+	}
+
+	if err := binary.Write(w, binary.BigEndian, int32(listLen)); err != nil {
+		return err
+	}
+
+	for i := 0; i < int(listLen); i++ {
+		if err := marshalValue(w, v.Index(i)); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func marshalCompound(w io.Writer, v reflect.Value) error {
+	if v.IsValid() {
+		if v.Kind() == reflect.Pointer {
+			v = v.Elem()
+		}
+
+		if v.Kind() != reflect.Struct {
+			return fmt.Errorf("tried to marshal compound into %s", v.Type().String())
+		}
+	}
+
+	for i := 0; i < v.NumField(); i++ {
+		field := v.Field(i)
+		name := v.Type().Field(i).Name
+
+		if err := writeTag(w, field.Type()); err != nil {
+			return err
+		}
+
+		if err := writeString(w, name); err != nil {
+			return err
+		}
+
+		if err := marshalValue(w, field); err != nil {
+			return err
+		}
+	}
+
+	_, err := w.Write([]byte{tagEnd})
+	return err
+}
+
+func marshalValue(w io.Writer, v reflect.Value) error {
+	switch v.Kind() {
+	case reflect.Uint8:
+		_, err := w.Write([]byte{byte(v.Uint())})
+		return err
+
+	case reflect.Int16:
+		return binary.Write(w, binary.BigEndian, int16(v.Int()))
+
+	case reflect.Int32:
+		return binary.Write(w, binary.BigEndian, int32(v.Int()))
+
+	case reflect.Int64:
+		return binary.Write(w, binary.BigEndian, v.Int())
+
+	case reflect.Float32:
+		return binary.Write(w, binary.BigEndian, float32(v.Float()))
+
+	case reflect.Float64:
+		return binary.Write(w, binary.BigEndian, v.Float())
+
+	case reflect.Slice:
+		sliceType := v.Type().Elem()
+		switch sliceType.Kind() {
+		case reflect.Uint8, reflect.Int32, reflect.Int64:
+			listLen := v.Len()
+			if listLen > math.MaxInt32 {
+				return fmt.Errorf("slice length %d exceeds maximum %d", listLen, math.MaxInt32)
+			}
+
+			if err := binary.Write(w, binary.BigEndian, int32(listLen)); err != nil {
+				return err
+			}
+
+			return binary.Write(w, binary.BigEndian, v.Interface())
+		default:
+			return marshalList(w, v)
+		}
+
+	case reflect.String:
+		return writeString(w, v.String())
+
+	case reflect.Struct:
+		return marshalCompound(w, v)
+
+	default:
+		return fmt.Errorf("cannot serialize type %s", v.Type().String())
+	}
+}
+
+func writeTag(w io.Writer, ty reflect.Type) error {
+	var tag byte
+	switch ty.Kind() {
+	case reflect.Uint8:
+		tag = tagByte
+	case reflect.Int16:
+		tag = tagShort
+	case reflect.Int32:
+		tag = tagInt
+	case reflect.Int64:
+		tag = tagLong
+	case reflect.Float32:
+		tag = tagFloat
+	case reflect.Float64:
+		tag = tagDouble
+	case reflect.Slice:
+		switch ty.Elem().Kind() {
+		case reflect.Uint8:
+			tag = tagByteArray
+		case reflect.Int32:
+			tag = tagIntArray
+		case reflect.Int64:
+			tag = tagLongArray
+		default:
+			tag = tagList
+		}
+	case reflect.String:
+		tag = tagString
+	case reflect.Struct:
+		tag = tagCompound
+	default:
+		return fmt.Errorf("cannot serialize type %s", ty.String())
+	}
+
+	_, err := w.Write([]byte{tag})
+	return err
 }
