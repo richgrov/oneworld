@@ -1,15 +1,10 @@
 package oneworld
 
 import (
-	"bufio"
 	"container/list"
-	"errors"
 	"fmt"
-	"io"
 	"math"
-	"net"
 	"reflect"
-	"sync"
 	"time"
 
 	"github.com/richgrov/oneworld/internal/protocol"
@@ -23,12 +18,7 @@ const ticksPerSecond = 20
 const messageQueueBacklog = 16
 
 type Server struct {
-	listener net.Listener
-	// Send any value in this channel to terminate the tick loop
-	tickLoopStopper chan byte
-	// All running server processes will add to this wait group. When .Wait()
-	// returns, all server processes have stopped.
-	shutdownQueue sync.WaitGroup
+	ticker *time.Ticker
 	// Functions added to this channel will be invoked from the goroutine of the
 	// main tick loop.
 	messageQueue chan func()
@@ -78,7 +68,6 @@ type schedule struct {
 }
 
 type Config struct {
-	Address      string
 	ViewDistance uint8
 	Dimension    Dimension // Only used by the client
 	// If nil, chunk loading from disk will not occurr. See also [level.McRegionLoader]
@@ -95,17 +84,10 @@ func NewServer(config *Config) (*Server, error) {
 		worldInfo = info
 	}
 
-	listener, err := net.Listen("tcp", config.Address)
-	if err != nil {
-		return nil, err
-	}
-
 	server := &Server{
-		listener:        listener,
-		tickLoopStopper: make(chan byte),
-		shutdownQueue:   sync.WaitGroup{},
-		messageQueue:    make(chan func(), messageQueueBacklog),
-		traitData:       traits.NewData(reflect.TypeOf(&PlayerJoinEvent{})),
+		ticker:       time.NewTicker(time.Second / ticksPerSecond),
+		messageQueue: make(chan func(), messageQueueBacklog),
+		traitData:    traits.NewData(reflect.TypeOf(&PlayerJoinEvent{})),
 
 		worldLoader:  config.WorldLoader,
 		viewDistance: config.ViewDistance,
@@ -127,74 +109,12 @@ func NewServer(config *Config) (*Server, error) {
 		schedules:   list.List{},
 	}
 
-	go server.acceptLoop(listener)
-	go server.tickLoop()
-
 	return server, nil
 }
 
-// Continuously accepts new connections
-func (server *Server) acceptLoop(listener net.Listener) {
-	server.shutdownQueue.Add(1)
-	defer server.shutdownQueue.Done()
-
-	for {
-		conn, err := listener.Accept()
-		if errors.Is(err, net.ErrClosed) {
-			break
-		} else if err != nil {
-			continue
-		}
-
-		go func() {
-			reader := bufio.NewReader(conn)
-			username, err := handleConnection(reader, conn)
-			if err != nil {
-				fmt.Printf("Error logging in: %s\n", err)
-				return
-			}
-
-			server.messageQueue <- func() {
-				server.addPlayer(reader, conn, username)
-			}
-		}()
-	}
-}
-
-// Handles the login process for a new connection. Returns the username of the
-// player
-func handleConnection(reader *bufio.Reader, writer io.Writer) (string, error) {
-	var handshake protocol.HandshakePacket
-	if err := protocol.ExpectPacket(reader, protocol.HandshakeId, &handshake); err != nil {
-		return "", err
-	}
-
-	// Legacy auth is no longer supported, so servers always respond with
-	// offline mode handshake, which is "-" for the username.
-	handshakeResponse := &protocol.HandshakePacket{Username: "-"}
-	if _, err := writer.Write(handshakeResponse.Marshal()); err != nil {
-		return "", err
-	}
-
-	var login protocol.LoginPacket
-	if err := protocol.ExpectPacket(reader, protocol.LoginId, &login); err != nil {
-		return "", err
-	}
-
-	if login.ProtocolVersion != protocolVersion {
-		return "", errors.New("invalid protocol version")
-	}
-
-	if handshake.Username != login.Username {
-		return "", errors.New("username mismatch")
-	}
-
-	return handshake.Username, nil
-}
-
-func (server *Server) addPlayer(reader *bufio.Reader, conn net.Conn, username string) {
+func (server *Server) AddPlayer(conn *AcceptedConnection) {
 	id := server.newEntityId()
-	player := newPlayer(id, server, reader, conn, username)
+	player := newPlayer(id, server, conn.reader, conn.conn, conn.Username)
 	server.entities[id] = player
 
 	player.queuePacket(&protocol.LoginPacket{
@@ -210,29 +130,16 @@ func (server *Server) addPlayer(reader *bufio.Reader, conn net.Conn, username st
 	traits.CallEvent(server.traitData, event)
 }
 
-// Runs the server's main tick loop
-func (server *Server) tickLoop() {
-	server.shutdownQueue.Add(1)
-	defer server.shutdownQueue.Done()
+func (server *Server) Ticker() <-chan time.Time {
+	return server.ticker.C
+}
 
-	ticker := time.NewTicker(time.Second / ticksPerSecond)
-	defer ticker.Stop()
-
-	for {
-		// Wait until next tick
-		select {
-		case <-ticker.C:
-		case <-server.tickLoopStopper:
-			return
-		}
-
-		server.drainMessageQueue()
-		server.tickEntities()
-		server.tickSchedules()
-		server.addLoadedChunks()
-
-		server.currentTick++
-	}
+func (server *Server) Tick() {
+	server.drainMessageQueue()
+	server.tickEntities()
+	server.tickSchedules()
+	server.addLoadedChunks()
+	server.currentTick++
 }
 
 func (server *Server) drainMessageQueue() {
@@ -369,9 +276,7 @@ func (server *Server) Repeat(fn func() int) {
 // Stops all running server processes. The function will block until all
 // processes have stopped.
 func (server *Server) Shutdown() {
-	server.listener.Close()
-	server.tickLoopStopper <- 0
-	server.shutdownQueue.Wait()
+	server.ticker.Stop()
 }
 
 func (server *Server) TraitData() *traits.TraitData {

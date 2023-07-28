@@ -1,9 +1,6 @@
 package main
 
 import (
-	"bufio"
-	"os"
-
 	"github.com/richgrov/oneworld"
 	"github.com/richgrov/oneworld/level"
 	"github.com/richgrov/oneworld/traits"
@@ -27,19 +24,30 @@ func (t *PlayerTrait) OnCommand(event *oneworld.CommandEvent) {
 }
 
 func main() {
+	listener, err := oneworld.NewListener("localhost:25565")
+	if err != nil {
+		panic(err)
+	}
+	go listener.Run()
+	defer listener.Close()
+
 	server, err := oneworld.NewServer(&oneworld.Config{
-		Address:      "localhost:25565",
 		ViewDistance: 8,
 		Dimension:    oneworld.Overworld,
 		WorldLoader:  &level.McRegionLoader{"world"},
 	})
-
 	if err != nil {
 		panic(err)
 	}
+	defer server.Shutdown()
+
+	for range server.Ticker() {
+		if player := listener.Dequeue(); player != nil {
+			server.AddPlayer(player)
+		}
+
+		server.Tick()
+	}
 
 	traits.Set(server, &ServerTrait{})
-
-	bufio.NewReader(os.Stdin).ReadString('\n')
-	server.Shutdown()
 }
