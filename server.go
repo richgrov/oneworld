@@ -50,19 +50,11 @@ type Server struct {
 	// The map should never contain a key pointing to nil.
 	chunks            map[level.ChunkPos]*chunk
 	chunkLoadConsumer chan level.ChunkReadResult
-
-	currentTick int
-	schedules   list.List
 }
 
 type worldLoader interface {
 	ReadWorldInfo() (level.WorldInfo, error)
 	LoadChunks([]level.ChunkPos, chan level.ChunkReadResult)
-}
-
-type schedule struct {
-	fn      func() int
-	nextRun int
 }
 
 type Config struct {
@@ -102,8 +94,6 @@ func NewServer(config *Config) (*Server, error) {
 		chunks:            make(map[level.ChunkPos]*chunk),
 		chunkLoadConsumer: make(chan level.ChunkReadResult, config.ViewDistance*config.ViewDistance),
 
-		currentTick: 0,
-		schedules:   list.List{},
 	}
 
 	return server, nil
@@ -130,9 +120,7 @@ func (server *Server) Ticker() <-chan time.Time {
 func (server *Server) Tick() {
 	server.drainMessageQueue()
 	server.tickEntities()
-	server.tickSchedules()
 	server.addLoadedChunks()
-	server.currentTick++
 }
 
 func (server *Server) drainMessageQueue() {
@@ -152,29 +140,6 @@ func (server *Server) tickEntities() {
 	}
 }
 
-func (server *Server) tickSchedules() {
-	e := server.schedules.Front()
-	for {
-		if e == nil {
-			break
-		}
-
-		sched := e.Value.(*schedule)
-		if sched.nextRun == server.currentTick {
-			nextRunDelay := sched.fn()
-
-			if nextRunDelay <= 0 {
-				next := e.Next()
-				server.schedules.Remove(e)
-				e = next
-				continue
-			}
-
-			sched.nextRun += nextRunDelay
-		}
-
-		e = e.Next()
-	}
 }
 
 func (server *Server) addLoadedChunks() {
@@ -253,17 +218,6 @@ func (server *Server) SetBlock(x int32, y int32, z int32, block Block) bool {
 		player.SendBlockChange(x, y, z, block.Type(), block.Data())
 	}
 	return true
-}
-
-// Repeatedly calls the provided function on the server's main goroutine. The
-// function is first executed on the next tick. The function's return value is
-// the number of ticks to wait until calling it again. If the return value is
-// less than 1, the function will not be called again.
-func (server *Server) Repeat(fn func() int) {
-	server.schedules.PushBack(&schedule{
-		fn:      fn,
-		nextRun: server.currentTick + 1,
-	})
 }
 
 // Stops all running server processes. The function will block until all
