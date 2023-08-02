@@ -10,7 +10,6 @@ import (
 	"github.com/richgrov/oneworld/internal/protocol"
 	"github.com/richgrov/oneworld/internal/util"
 	"github.com/richgrov/oneworld/level"
-	"github.com/richgrov/oneworld/traits"
 )
 
 const protocolVersion = 14
@@ -22,7 +21,6 @@ type Server struct {
 	// Functions added to this channel will be invoked from the goroutine of the
 	// main tick loop.
 	messageQueue chan func()
-	traitData    *traits.TraitData
 
 	worldLoader  worldLoader
 	viewDistance uint8
@@ -87,7 +85,6 @@ func NewServer(config *Config) (*Server, error) {
 	server := &Server{
 		ticker:       time.NewTicker(time.Second / ticksPerSecond),
 		messageQueue: make(chan func(), messageQueueBacklog),
-		traitData:    traits.NewData(reflect.TypeOf(&PlayerJoinEvent{})),
 
 		worldLoader:  config.WorldLoader,
 		viewDistance: config.ViewDistance,
@@ -124,10 +121,6 @@ func (server *Server) AddPlayer(conn *AcceptedConnection) {
 	})
 	player.Teleport(float64(server.spawnX), float64(server.spawnY)+5.0, float64(server.spawnZ))
 
-	event := &PlayerJoinEvent{
-		Player: player,
-	}
-	traits.CallEvent(server.traitData, event)
 }
 
 func (server *Server) Ticker() <-chan time.Time {
@@ -277,8 +270,4 @@ func (server *Server) Repeat(fn func() int) {
 // processes have stopped.
 func (server *Server) Shutdown() {
 	server.ticker.Stop()
-}
-
-func (server *Server) TraitData() *traits.TraitData {
-	return server.traitData
 }

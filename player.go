@@ -10,7 +10,6 @@ import (
 	"github.com/richgrov/oneworld/blocks"
 	"github.com/richgrov/oneworld/internal/protocol"
 	"github.com/richgrov/oneworld/level"
-	"github.com/richgrov/oneworld/traits"
 )
 
 const packetBacklog = 32
@@ -18,7 +17,6 @@ const packetBacklog = 32
 type Player struct {
 	id        int32
 	server    *Server
-	traitData *traits.TraitData
 
 	reader              *bufio.Reader
 	conn                net.Conn
@@ -38,10 +36,6 @@ func newPlayer(entityId int32, server *Server, reader *bufio.Reader, conn net.Co
 	player := &Player{
 		id:     entityId,
 		server: server,
-		traitData: traits.NewData(
-			reflect.TypeOf(&ChatEvent{}),
-			reflect.TypeOf(&CommandEvent{}),
-		),
 
 		reader:              reader,
 		conn:                conn,
@@ -78,9 +72,6 @@ func (player *Player) Server() *Server {
 	return player.server
 }
 
-func (player *Player) TraitData() *traits.TraitData {
-	return player.traitData
-}
 
 func (player *Player) Tick() {
 processPackets:
@@ -193,17 +184,6 @@ func (player *Player) queuePacket(packet protocol.OutboundPacket) {
 func (player *Player) handlePacket(packet any) {
 	switch pkt := packet.(type) {
 	case *protocol.ChatPacket:
-		if strings.HasPrefix(pkt.Message, "/") {
-			traits.CallEvent(player.traitData, &CommandEvent{
-				Player:  player,
-				Command: strings.TrimPrefix(pkt.Message, "/"),
-			})
-		} else {
-			traits.CallEvent(player.traitData, &ChatEvent{
-				Player:  player,
-				Message: pkt.Message,
-			})
-		}
 
 	case *protocol.DigPacket:
 		switch pkt.Status {
