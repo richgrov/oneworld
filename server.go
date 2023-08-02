@@ -1,13 +1,10 @@
 package oneworld
 
 import (
-	"container/list"
 	"fmt"
 	"math"
-	"reflect"
 	"time"
 
-	"github.com/richgrov/oneworld/internal/protocol"
 	"github.com/richgrov/oneworld/internal/util"
 	"github.com/richgrov/oneworld/level"
 )
@@ -22,16 +19,7 @@ type Server struct {
 	// main tick loop.
 	messageQueue chan func()
 
-	worldLoader  worldLoader
-	viewDistance uint8
-
-	// Below two variables have no server use. Only sent to client
-	noiseSeed int64
-	dimension Dimension
-
-	spawnX int32
-	spawnY int32
-	spawnZ int32
+	worldLoader worldLoader
 
 	entities     map[int32]Entity
 	nextEntityId int32
@@ -48,7 +36,7 @@ type Server struct {
 	// - The chunk along with all its data is loaded and valid
 	//
 	// The map should never contain a key pointing to nil.
-	chunks            map[level.ChunkPos]*chunk
+	chunks            map[level.ChunkPos]*Chunk
 	chunkLoadConsumer chan level.ChunkReadResult
 }
 
@@ -57,60 +45,41 @@ type worldLoader interface {
 	LoadChunks([]level.ChunkPos, chan level.ChunkReadResult)
 }
 
-type Config struct {
-	ViewDistance uint8
-	Dimension    Dimension // Only used by the client
-	// If nil, chunk loading from disk will not occurr. See also [level.McRegionLoader]
-	WorldLoader worldLoader
-}
-
-func NewServer(config *Config) (*Server, error) {
-	worldInfo := level.WorldInfo{}
-	if config.WorldLoader != nil {
-		info, err := config.WorldLoader.ReadWorldInfo()
-		if err != nil {
-			return nil, fmt.Errorf("error loading world info: %w", err)
-		}
-		worldInfo = info
-	}
-
+func NewServer(worldLoader worldLoader) (*Server, error) {
 	server := &Server{
 		ticker:       time.NewTicker(time.Second / ticksPerSecond),
 		messageQueue: make(chan func(), messageQueueBacklog),
 
-		worldLoader:  config.WorldLoader,
-		viewDistance: config.ViewDistance,
-
-		noiseSeed: worldInfo.BiomeSeed,
-		dimension: config.Dimension,
-
-		spawnX: worldInfo.SpawnX,
-		spawnY: worldInfo.SpawnY,
-		spawnZ: worldInfo.SpawnZ,
+		worldLoader: worldLoader,
 
 		entities:     make(map[int32]Entity),
 		nextEntityId: 0,
 
-		chunks:            make(map[level.ChunkPos]*chunk),
-		chunkLoadConsumer: make(chan level.ChunkReadResult, config.ViewDistance*config.ViewDistance),
-
+		chunks:            make(map[level.ChunkPos]*Chunk),
+		chunkLoadConsumer: make(chan level.ChunkReadResult, 32),
 	}
 
 	return server, nil
 }
 
-func (server *Server) AddPlayer(conn *AcceptedConnection) {
-	id := server.newEntityId()
-	player := newPlayer(id, server, conn.reader, conn.conn, conn.Username)
-	server.entities[id] = player
+func (server *Server) AddEntity(entity Entity) {
+	server.entities[entity.Id()] = entity
+	entity.OnSpawned()
+}
 
-	player.queuePacket(&protocol.LoginPacket{
-		ProtocolVersion: id,
-		MapSeed:         server.noiseSeed,
-		Dimension:       byte(server.dimension),
-	})
-	player.Teleport(float64(server.spawnX), float64(server.spawnY)+5.0, float64(server.spawnZ))
+func (server *Server) AllocateEntity(x, y, z float64) EntityBase {
+	id := server.nextEntityId
+	if id == math.MaxInt32 {
+		panic("entity IDs exhausted")
+	}
+	server.nextEntityId++
 
+	return EntityBase{
+		id: id,
+		x:  x,
+		y:  y,
+		z:  z,
+	}
 }
 
 func (server *Server) Ticker() <-chan time.Time {
@@ -140,8 +109,6 @@ func (server *Server) tickEntities() {
 	}
 }
 
-}
-
 func (server *Server) addLoadedChunks() {
 	for {
 		select {
@@ -149,9 +116,6 @@ func (server *Server) addLoadedChunks() {
 			chunk := server.chunks[result.Pos]
 
 			if result.Error != nil {
-				for player := range chunk.viewers {
-					delete(player.viewableChunks, result.Pos)
-				}
 				delete(server.chunks, result.Pos)
 				fmt.Printf("%s", result.Error)
 				continue
@@ -163,8 +127,8 @@ func (server *Server) addLoadedChunks() {
 			}
 
 			chunk.initialize(result.Data)
-			for player := range chunk.viewers {
-				player.sendChunk(result.Pos, chunk)
+			for _, player := range chunk.observers {
+				player.sendChunk(result.Pos.X, result.Pos.Z, chunk)
 			}
 		default:
 			return
@@ -172,22 +136,27 @@ func (server *Server) addLoadedChunks() {
 	}
 }
 
-// Gets the next available entity ID
-func (server *Server) newEntityId() int32 {
-	id := server.nextEntityId
-	if id == math.MaxInt32 {
-		panic("entity IDs exhausted")
+func (server *Server) InitializeChunk(pos level.ChunkPos, observers ...chunkObserver) {
+	chunk := &Chunk{
+		x:         pos.X,
+		z:         pos.Z,
+		observers: make([]chunkObserver, 0, len(observers)),
 	}
-
-	server.nextEntityId++
-	return id
+	for _, observer := range observers {
+		chunk.AddObserver(observer)
+	}
+	server.chunks[pos] = chunk
 }
 
-func (server *Server) loadChunks(positions []level.ChunkPos) {
+func (server *Server) LoadChunks(positions []level.ChunkPos) {
 	go server.worldLoader.LoadChunks(positions, server.chunkLoadConsumer)
 }
 
-func (server *Server) getChunkFromBlockPos(x int32, z int32) *chunk {
+func (server *Server) GetChunk(pos level.ChunkPos) *Chunk {
+	return server.chunks[pos]
+}
+
+func (server *Server) getChunkFromBlockPos(x int32, z int32) *Chunk {
 	ch, _ := server.chunks[level.ChunkPos{
 		util.DivideAndFloorI32(x, 16),
 		util.DivideAndFloorI32(z, 16),
@@ -214,7 +183,7 @@ func (server *Server) SetBlock(x int32, y int32, z int32, block Block) bool {
 	index := chunkCoordsToIndex(util.I32Abs(x%16), y, util.I32Abs(z%16))
 	ch.blocks[index] = block
 
-	for player := range ch.viewers {
+	for _, player := range ch.observers {
 		player.SendBlockChange(x, y, z, block.Type(), block.Data())
 	}
 	return true
