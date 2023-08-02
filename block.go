@@ -7,6 +7,10 @@ type Block struct {
 	data byte
 }
 
+func NewBlock(ty blocks.BlockType, data byte) Block {
+	return Block{ty, data}
+}
+
 func (block *Block) Type() blocks.BlockType {
 	return block.ty
 }

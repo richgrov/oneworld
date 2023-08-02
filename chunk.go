@@ -12,24 +12,45 @@ func chunkCoordsToIndex(x int32, y int32, z int32) int32 {
 	return x*16*128 + z*128 + y
 }
 
-type chunk struct {
+type Chunk struct {
+	x          int32
+	z          int32
 	blocks     []Block
 	blockLight []byte
 	skyLight   []byte
-	viewers    map[*Player]bool
+	observers  []chunkObserver
 }
 
-func newChunk() *chunk {
-	return &chunk{
-		viewers: make(map[*Player]bool),
-	}
+type chunkObserver interface {
+	initializeChunk(chunkX, chunkZ int32)
+	unloadChunk(chunkX, chunkZ int32)
+	sendChunk(chunkX, chunkZ int32, chunk *Chunk)
+	SendBlockChange(x, y, z int32, ty blocks.BlockType, data byte)
 }
 
-func (ch *chunk) isDataLoaded() bool {
+func (ch *Chunk) isDataLoaded() bool {
 	return ch.blocks != nil
 }
 
-func (ch *chunk) initialize(data *level.ChunkData) {
+func (chunk *Chunk) AddObserver(observer chunkObserver) {
+	chunk.observers = append(chunk.observers, observer)
+	observer.initializeChunk(chunk.x, chunk.z)
+	if chunk.isDataLoaded() {
+		observer.sendChunk(chunk.x, chunk.z, chunk)
+	}
+}
+
+func (chunk *Chunk) RemoveObserver(observer chunkObserver) {
+	for i, obs := range chunk.observers {
+		if obs == observer {
+			observer.unloadChunk(chunk.x, chunk.z)
+			chunk.observers = append(chunk.observers[:i], chunk.observers[i+1:]...)
+			break
+		}
+	}
+}
+
+func (ch *Chunk) initialize(data *level.ChunkData) {
 	ch.blocks = make([]Block, 16*16*128)
 	for i := 0; i < len(ch.blocks); i++ {
 		ch.blocks[i].ty = blocks.BlockType(data.Blocks[i])
@@ -39,7 +60,7 @@ func (ch *chunk) initialize(data *level.ChunkData) {
 	ch.skyLight = data.SkyLight
 }
 
-func (ch *chunk) serializeToNetwork() []byte {
+func (ch *Chunk) serializeToNetwork() []byte {
 	capacity := 16*16*128 + 16*16*64 + 16*16*64 + 16*16*64
 	data := bytes.NewBuffer(make([]byte, 0, capacity))
 

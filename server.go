@@ -1,21 +1,12 @@
 package oneworld
 
 import (
-	"bufio"
-	"container/list"
-	"errors"
 	"fmt"
-	"io"
 	"math"
-	"net"
-	"reflect"
-	"sync"
 	"time"
 
-	"github.com/richgrov/oneworld/internal/protocol"
 	"github.com/richgrov/oneworld/internal/util"
 	"github.com/richgrov/oneworld/level"
-	"github.com/richgrov/oneworld/traits"
 )
 
 const protocolVersion = 14
@@ -23,27 +14,12 @@ const ticksPerSecond = 20
 const messageQueueBacklog = 16
 
 type Server struct {
-	listener net.Listener
-	// Send any value in this channel to terminate the tick loop
-	tickLoopStopper chan byte
-	// All running server processes will add to this wait group. When .Wait()
-	// returns, all server processes have stopped.
-	shutdownQueue sync.WaitGroup
+	ticker *time.Ticker
 	// Functions added to this channel will be invoked from the goroutine of the
 	// main tick loop.
 	messageQueue chan func()
-	traitData    *traits.TraitData
 
-	worldLoader  worldLoader
-	viewDistance uint8
-
-	// Below two variables have no server use. Only sent to client
-	noiseSeed int64
-	dimension Dimension
-
-	spawnX int32
-	spawnY int32
-	spawnZ int32
+	worldLoader worldLoader
 
 	entities     map[int32]Entity
 	nextEntityId int32
@@ -60,11 +36,8 @@ type Server struct {
 	// - The chunk along with all its data is loaded and valid
 	//
 	// The map should never contain a key pointing to nil.
-	chunks            map[level.ChunkPos]*chunk
+	chunks            map[level.ChunkPos]*Chunk
 	chunkLoadConsumer chan level.ChunkReadResult
-
-	currentTick int
-	schedules   list.List
 }
 
 type worldLoader interface {
@@ -72,167 +45,51 @@ type worldLoader interface {
 	LoadChunks([]level.ChunkPos, chan level.ChunkReadResult)
 }
 
-type schedule struct {
-	fn      func() int
-	nextRun int
-}
-
-type Config struct {
-	Address      string
-	ViewDistance uint8
-	Dimension    Dimension // Only used by the client
-	// If nil, chunk loading from disk will not occurr. See also [level.McRegionLoader]
-	WorldLoader worldLoader
-}
-
-func NewServer(config *Config) (*Server, error) {
-	worldInfo := level.WorldInfo{}
-	if config.WorldLoader != nil {
-		info, err := config.WorldLoader.ReadWorldInfo()
-		if err != nil {
-			return nil, fmt.Errorf("error loading world info: %w", err)
-		}
-		worldInfo = info
-	}
-
-	listener, err := net.Listen("tcp", config.Address)
-	if err != nil {
-		return nil, err
-	}
-
+func NewServer(worldLoader worldLoader) (*Server, error) {
 	server := &Server{
-		listener:        listener,
-		tickLoopStopper: make(chan byte),
-		shutdownQueue:   sync.WaitGroup{},
-		messageQueue:    make(chan func(), messageQueueBacklog),
-		traitData:       traits.NewData(reflect.TypeOf(&PlayerJoinEvent{})),
+		ticker:       time.NewTicker(time.Second / ticksPerSecond),
+		messageQueue: make(chan func(), messageQueueBacklog),
 
-		worldLoader:  config.WorldLoader,
-		viewDistance: config.ViewDistance,
-
-		noiseSeed: worldInfo.BiomeSeed,
-		dimension: config.Dimension,
-
-		spawnX: worldInfo.SpawnX,
-		spawnY: worldInfo.SpawnY,
-		spawnZ: worldInfo.SpawnZ,
+		worldLoader: worldLoader,
 
 		entities:     make(map[int32]Entity),
 		nextEntityId: 0,
 
-		chunks:            make(map[level.ChunkPos]*chunk),
-		chunkLoadConsumer: make(chan level.ChunkReadResult, config.ViewDistance*config.ViewDistance),
-
-		currentTick: 0,
-		schedules:   list.List{},
+		chunks:            make(map[level.ChunkPos]*Chunk),
+		chunkLoadConsumer: make(chan level.ChunkReadResult, 32),
 	}
-
-	go server.acceptLoop(listener)
-	go server.tickLoop()
 
 	return server, nil
 }
 
-// Continuously accepts new connections
-func (server *Server) acceptLoop(listener net.Listener) {
-	server.shutdownQueue.Add(1)
-	defer server.shutdownQueue.Done()
+func (server *Server) AddEntity(entity Entity) {
+	server.entities[entity.Id()] = entity
+	entity.OnSpawned()
+}
 
-	for {
-		conn, err := listener.Accept()
-		if errors.Is(err, net.ErrClosed) {
-			break
-		} else if err != nil {
-			continue
-		}
+func (server *Server) AllocateEntity(x, y, z float64) EntityBase {
+	id := server.nextEntityId
+	if id == math.MaxInt32 {
+		panic("entity IDs exhausted")
+	}
+	server.nextEntityId++
 
-		go func() {
-			reader := bufio.NewReader(conn)
-			username, err := handleConnection(reader, conn)
-			if err != nil {
-				fmt.Printf("Error logging in: %s\n", err)
-				return
-			}
-
-			server.messageQueue <- func() {
-				server.addPlayer(reader, conn, username)
-			}
-		}()
+	return EntityBase{
+		id: id,
+		x:  x,
+		y:  y,
+		z:  z,
 	}
 }
 
-// Handles the login process for a new connection. Returns the username of the
-// player
-func handleConnection(reader *bufio.Reader, writer io.Writer) (string, error) {
-	var handshake protocol.HandshakePacket
-	if err := protocol.ExpectPacket(reader, protocol.HandshakeId, &handshake); err != nil {
-		return "", err
-	}
-
-	// Legacy auth is no longer supported, so servers always respond with
-	// offline mode handshake, which is "-" for the username.
-	handshakeResponse := &protocol.HandshakePacket{Username: "-"}
-	if _, err := writer.Write(handshakeResponse.Marshal()); err != nil {
-		return "", err
-	}
-
-	var login protocol.LoginPacket
-	if err := protocol.ExpectPacket(reader, protocol.LoginId, &login); err != nil {
-		return "", err
-	}
-
-	if login.ProtocolVersion != protocolVersion {
-		return "", errors.New("invalid protocol version")
-	}
-
-	if handshake.Username != login.Username {
-		return "", errors.New("username mismatch")
-	}
-
-	return handshake.Username, nil
+func (server *Server) Ticker() <-chan time.Time {
+	return server.ticker.C
 }
 
-func (server *Server) addPlayer(reader *bufio.Reader, conn net.Conn, username string) {
-	id := server.newEntityId()
-	player := newPlayer(id, server, reader, conn, username)
-	server.entities[id] = player
-
-	player.queuePacket(&protocol.LoginPacket{
-		ProtocolVersion: id,
-		MapSeed:         server.noiseSeed,
-		Dimension:       byte(server.dimension),
-	})
-	player.Teleport(float64(server.spawnX), float64(server.spawnY)+5.0, float64(server.spawnZ))
-
-	event := &PlayerJoinEvent{
-		Player: player,
-	}
-	traits.CallEvent(server.traitData, event)
-}
-
-// Runs the server's main tick loop
-func (server *Server) tickLoop() {
-	server.shutdownQueue.Add(1)
-	defer server.shutdownQueue.Done()
-
-	ticker := time.NewTicker(time.Second / ticksPerSecond)
-	defer ticker.Stop()
-
-	for {
-		// Wait until next tick
-		select {
-		case <-ticker.C:
-		case <-server.tickLoopStopper:
-			return
-		}
-
-		server.drainMessageQueue()
-		server.tickEntities()
-		server.tickSchedules()
-		server.addLoadedChunks()
-
-		server.currentTick++
-	}
+func (server *Server) Tick() {
+	server.drainMessageQueue()
+	server.tickEntities()
+	server.addLoadedChunks()
 }
 
 func (server *Server) drainMessageQueue() {
@@ -252,31 +109,6 @@ func (server *Server) tickEntities() {
 	}
 }
 
-func (server *Server) tickSchedules() {
-	e := server.schedules.Front()
-	for {
-		if e == nil {
-			break
-		}
-
-		sched := e.Value.(*schedule)
-		if sched.nextRun == server.currentTick {
-			nextRunDelay := sched.fn()
-
-			if nextRunDelay <= 0 {
-				next := e.Next()
-				server.schedules.Remove(e)
-				e = next
-				continue
-			}
-
-			sched.nextRun += nextRunDelay
-		}
-
-		e = e.Next()
-	}
-}
-
 func (server *Server) addLoadedChunks() {
 	for {
 		select {
@@ -284,9 +116,6 @@ func (server *Server) addLoadedChunks() {
 			chunk := server.chunks[result.Pos]
 
 			if result.Error != nil {
-				for player := range chunk.viewers {
-					delete(player.viewableChunks, result.Pos)
-				}
 				delete(server.chunks, result.Pos)
 				fmt.Printf("%s", result.Error)
 				continue
@@ -298,8 +127,8 @@ func (server *Server) addLoadedChunks() {
 			}
 
 			chunk.initialize(result.Data)
-			for player := range chunk.viewers {
-				player.sendChunk(result.Pos, chunk)
+			for _, player := range chunk.observers {
+				player.sendChunk(result.Pos.X, result.Pos.Z, chunk)
 			}
 		default:
 			return
@@ -307,22 +136,27 @@ func (server *Server) addLoadedChunks() {
 	}
 }
 
-// Gets the next available entity ID
-func (server *Server) newEntityId() int32 {
-	id := server.nextEntityId
-	if id == math.MaxInt32 {
-		panic("entity IDs exhausted")
+func (server *Server) InitializeChunk(pos level.ChunkPos, observers ...chunkObserver) {
+	chunk := &Chunk{
+		x:         pos.X,
+		z:         pos.Z,
+		observers: make([]chunkObserver, 0, len(observers)),
 	}
-
-	server.nextEntityId++
-	return id
+	for _, observer := range observers {
+		chunk.AddObserver(observer)
+	}
+	server.chunks[pos] = chunk
 }
 
-func (server *Server) loadChunks(positions []level.ChunkPos) {
+func (server *Server) LoadChunks(positions []level.ChunkPos) {
 	go server.worldLoader.LoadChunks(positions, server.chunkLoadConsumer)
 }
 
-func (server *Server) getChunkFromBlockPos(x int32, z int32) *chunk {
+func (server *Server) GetChunk(pos level.ChunkPos) *Chunk {
+	return server.chunks[pos]
+}
+
+func (server *Server) getChunkFromBlockPos(x int32, z int32) *Chunk {
 	ch, _ := server.chunks[level.ChunkPos{
 		util.DivideAndFloorI32(x, 16),
 		util.DivideAndFloorI32(z, 16),
@@ -349,31 +183,14 @@ func (server *Server) SetBlock(x int32, y int32, z int32, block Block) bool {
 	index := chunkCoordsToIndex(util.I32Abs(x%16), y, util.I32Abs(z%16))
 	ch.blocks[index] = block
 
-	for player := range ch.viewers {
+	for _, player := range ch.observers {
 		player.SendBlockChange(x, y, z, block.Type(), block.Data())
 	}
 	return true
 }
 
-// Repeatedly calls the provided function on the server's main goroutine. The
-// function is first executed on the next tick. The function's return value is
-// the number of ticks to wait until calling it again. If the return value is
-// less than 1, the function will not be called again.
-func (server *Server) Repeat(fn func() int) {
-	server.schedules.PushBack(&schedule{
-		fn:      fn,
-		nextRun: server.currentTick + 1,
-	})
-}
-
 // Stops all running server processes. The function will block until all
 // processes have stopped.
 func (server *Server) Shutdown() {
-	server.listener.Close()
-	server.tickLoopStopper <- 0
-	server.shutdownQueue.Wait()
-}
-
-func (server *Server) TraitData() *traits.TraitData {
-	return server.traitData
+	server.ticker.Stop()
 }
