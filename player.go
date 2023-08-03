@@ -32,7 +32,7 @@ type PlayerBase struct {
 	eventHandler PlayerEventHandler
 
 	items    [45]ItemStack
-	viewDist int32
+	viewDist int
 }
 
 func (player *PlayerBase) OnSpawned() {
@@ -50,14 +50,17 @@ func (player *PlayerBase) OnSpawned() {
 		OnGround: false,
 	})
 
-	chunkX := int32(math.Floor(player.x / 16))
-	chunkZ := int32(math.Floor(player.z / 16))
+	chunkX := int(math.Floor(player.x / 16))
+	chunkZ := int(math.Floor(player.z / 16))
 
 	viewDiameter := player.viewDist*2 + 1
 	chunksToLoad := make([]level.ChunkPos, 0, viewDiameter*viewDiameter)
-	for cx := chunkX - player.viewDist; cx <= chunkX+player.viewDist; cx++ {
-		for cz := chunkZ - player.viewDist; cz <= chunkZ+player.viewDist; cz++ {
-			chunksToLoad = append(chunksToLoad, level.ChunkPos{cx, cz})
+	for cx := util.IMax(chunkX-player.viewDist, 0); cx <= chunkX+player.viewDist; cx++ {
+		for cz := util.IMax(chunkZ-player.viewDist, 0); cz <= chunkZ+player.viewDist; cz++ {
+			chunksToLoad = append(chunksToLoad, level.ChunkPos{
+				X: cx,
+				Z: cz,
+			})
 		}
 	}
 	player.eventHandler.OnUpdateChunkViewRange([]level.ChunkPos{}, chunksToLoad)
@@ -66,11 +69,15 @@ func (player *PlayerBase) OnSpawned() {
 func NewBasePlayer(
 	base EntityBase,
 	conn *AcceptedConnection,
-	viewDistance int32,
+	viewDistance int,
 	biomeSeed int64,
 	dimension Dimension,
 	eventHandler PlayerEventHandler,
 ) PlayerBase {
+	if viewDistance <= 0 {
+		panic("view distance must be positive")
+	}
+
 	player := PlayerBase{
 		EntityBase: base,
 		Username:   conn.Username,
@@ -123,18 +130,21 @@ func (player *PlayerBase) Teleport(x float64, y float64, z float64) {
 		OnGround: false,
 	})
 
-	chunkX := int32(math.Floor(player.x / 16))
-	chunkZ := int32(math.Floor(player.z / 16))
+	chunkX := int(math.Floor(player.x / 16))
+	chunkZ := int(math.Floor(player.z / 16))
 
-	newChunkX := int32(math.Floor(x / 16))
-	newChunkZ := int32(math.Floor(z / 16))
+	newChunkX := int(math.Floor(x / 16))
+	newChunkZ := int(math.Floor(z / 16))
 
 	chunksToUnload := make([]level.ChunkPos, 0, player.viewDist*3)
-	for cx := chunkX - player.viewDist; cx <= chunkX+player.viewDist; cx++ {
-		for cz := chunkZ - player.viewDist; cz <= chunkZ+player.viewDist; cz++ {
-			canSeeChunk := util.I32Abs(cx-newChunkX) <= player.viewDist && util.I32Abs(cz-newChunkZ) <= player.viewDist
+	for cx := util.IMax(chunkX-player.viewDist, 0); cx <= chunkX+player.viewDist; cx++ {
+		for cz := util.IMax(chunkZ-player.viewDist, 0); cz <= chunkZ+player.viewDist; cz++ {
+			canSeeChunk := util.IAbs(cx-newChunkX) <= player.viewDist && util.IAbs(cz-newChunkZ) <= player.viewDist
 			if !canSeeChunk {
-				chunksToUnload = append(chunksToUnload, level.ChunkPos{cx, cz})
+				chunksToUnload = append(chunksToUnload, level.ChunkPos{
+					X: cx,
+					Z: cz,
+				})
 			}
 		}
 	}
@@ -142,9 +152,12 @@ func (player *PlayerBase) Teleport(x float64, y float64, z float64) {
 	chunksToLoad := make([]level.ChunkPos, 0, player.viewDist*3)
 	for cx := newChunkX - player.viewDist; cx <= newChunkX+player.viewDist; cx++ {
 		for cz := newChunkZ - player.viewDist; cz <= newChunkZ+player.viewDist; cz++ {
-			sawChunkBefore := util.I32Abs(cx-chunkX) <= player.viewDist && util.I32Abs(cz-chunkZ) <= player.viewDist
+			sawChunkBefore := util.IAbs(cx-chunkX) <= player.viewDist && util.IAbs(cz-chunkZ) <= player.viewDist
 			if !sawChunkBefore {
-				chunksToLoad = append(chunksToLoad, level.ChunkPos{cx, cz})
+				chunksToLoad = append(chunksToLoad, level.ChunkPos{
+					X: cx,
+					Z: cz,
+				})
 			}
 		}
 	}
@@ -154,27 +167,27 @@ func (player *PlayerBase) Teleport(x float64, y float64, z float64) {
 	}
 }
 
-func (player *PlayerBase) initializeChunk(chunkX int32, chunkZ int32) {
+func (player *PlayerBase) initializeChunk(chunkX int, chunkZ int) {
 	player.queuePacket(&protocol.PreChunkPacket{
-		ChunkX: chunkX,
-		ChunkZ: chunkZ,
+		ChunkX: int32(chunkX),
+		ChunkZ: int32(chunkZ),
 		Load:   true,
 	})
 }
 
-func (player *PlayerBase) unloadChunk(chunkX int32, chunkZ int32) {
+func (player *PlayerBase) unloadChunk(chunkX int, chunkZ int) {
 	player.queuePacket(&protocol.PreChunkPacket{
-		ChunkX: chunkX,
-		ChunkZ: chunkZ,
+		ChunkX: int32(chunkX),
+		ChunkZ: int32(chunkZ),
 		Load:   false,
 	})
 }
 
-func (player *PlayerBase) sendChunk(chunkX int32, chunkZ int32, ch *Chunk) {
+func (player *PlayerBase) sendChunk(chunkX int, chunkZ int, ch *Chunk) {
 	player.queuePacket(&protocol.ChunkDataPacket{
-		StartX: chunkX * 16,
+		StartX: int32(chunkX * 16),
 		StartY: 0,
-		StartZ: chunkZ * 16,
+		StartZ: int32(chunkZ * 16),
 		XSize:  15,
 		YSize:  127,
 		ZSize:  15,
@@ -195,7 +208,7 @@ func (player *PlayerBase) handlePacket(packet any) {
 		player.eventHandler.OnChat(pkt.Message)
 
 	case *protocol.DigPacket:
-		player.eventHandler.OnDig(pkt.X, int32(pkt.Y), pkt.Z, pkt.Status == 2)
+		player.eventHandler.OnDig(int(pkt.X), int(pkt.Y), int(pkt.Z), pkt.Status == 2)
 
 	case *protocol.UseItemPacket:
 		if pkt.ItemId != -1 {
@@ -218,7 +231,7 @@ func (player *PlayerBase) handlePacket(packet any) {
 				x++
 			}
 
-			player.eventHandler.OnInteract(pkt.X, int32(pkt.Y), pkt.Z, x, y, z)
+			player.eventHandler.OnInteract(int(pkt.X), int(pkt.Y), int(pkt.Z), int(x), int(y), int(z))
 		}
 	}
 }
@@ -250,11 +263,11 @@ func (player *PlayerBase) writeLoop() {
 	}
 }
 
-func (player *PlayerBase) SendBlockChange(x int32, y int32, z int32, ty blocks.BlockType, data byte) {
+func (player *PlayerBase) SendBlockChange(x int, y int, z int, ty blocks.BlockType, data byte) {
 	player.queuePacket(&protocol.BlockChangePacket{
-		X:    x,
+		X:    int32(x),
 		Y:    byte(y),
-		Z:    z,
+		Z:    int32(z),
 		Type: byte(ty),
 		Data: data,
 	})
@@ -294,7 +307,7 @@ func (player *PlayerBase) Disconnect() {
 
 type PlayerEventHandler interface {
 	OnChat(message string)
-	OnInteract(clickedX, clickedY, clickedZ, newX, newY, newZ int32)
-	OnDig(x, y, z int32, finishedDestroying bool)
+	OnInteract(clickedX, clickedY, clickedZ, newX, newY, newZ int)
+	OnDig(x, y, z int, finishedDestroying bool)
 	OnUpdateChunkViewRange(unload []level.ChunkPos, load []level.ChunkPos)
 }

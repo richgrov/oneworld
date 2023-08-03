@@ -16,8 +16,8 @@ type WorldInfo struct {
 }
 
 type ChunkPos struct {
-	X int32
-	Z int32
+	X int
+	Z int
 }
 
 // The length of each slice in this struct should be equal to `ChunkSize`. None
@@ -34,13 +34,14 @@ func (cd *ChunkData) InitializeToAir() {
 	cd.SkyLight = make([]byte, ChunkSize)
 }
 
-func (cd *ChunkData) Set(x uint, y uint, z uint, block blocks.Block) {
+func (cd *ChunkData) Set(x, y, z uint, block blocks.Block) {
 	index := chunkPosToIndex(x, y, z)
 	cd.Blocks[index] = block
 }
 
 type ChunkReadResult struct {
-	Pos   ChunkPos
-	Data  *ChunkData
-	Error error
+	ChunkX int
+	ChunkZ int
+	Data   *ChunkData
+	Error  error
 }

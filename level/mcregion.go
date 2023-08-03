@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 
 	"github.com/richgrov/oneworld/internal/util"
+	"github.com/richgrov/oneworld/blocks"
 	"github.com/richgrov/oneworld/nbt"
 )
 
@@ -42,6 +43,13 @@ type McRegionChunkData struct {
 	Data       []byte
 	BlockLight []byte
 	SkyLight   []byte
+}
+
+func getRegionPos(chunkPos ChunkPos) ChunkPos {
+	return ChunkPos{
+		X: chunkPos.X / 32,
+		Z: chunkPos.Z / 32,
+	}
 }
 
 func (loader *McRegionLoader) ReadWorldInfo() (WorldInfo, error) {
@@ -80,13 +88,11 @@ func (loader *McRegionLoader) LoadChunks(chunks []ChunkPos, consumer chan ChunkR
 
 	for _, chunkPos := range chunks {
 		result := ChunkReadResult{
-			Pos: ChunkPos(chunkPos),
+			ChunkX: chunkPos.X,
+			ChunkZ: chunkPos.Z,
 		}
 
-		region := ChunkPos{
-			util.DivideAndFloorI32(chunkPos.X, 32),
-			util.DivideAndFloorI32(chunkPos.Z, 32),
-		}
+		region := getRegionPos(chunkPos)
 
 		file, ok := files[region]
 		if !ok {
@@ -174,12 +180,21 @@ func parseChunkData(data []byte) (*ChunkData, error) {
 		return nil, err
 	}
 
-	return &ChunkData{
-		Blocks:     chunk.Level.Blocks,
-		BlockData:  nibblesToBytes(chunk.Level.Data),
+	chunkData := &ChunkData{
+		Blocks:     make([]blocks.Block, ChunkSize),
 		BlockLight: nibblesToBytes(chunk.Level.BlockLight),
 		SkyLight:   nibblesToBytes(chunk.Level.SkyLight),
-	}, nil
+	}
+
+	blockData := nibblesToBytes(chunk.Level.Data)
+	for i := 0; i < len(chunkData.Blocks); i++ {
+		chunkData.Blocks[i] = blocks.Block{
+			Type: blocks.BlockType(chunk.Level.Blocks[i]),
+			Data: blockData[i],
+		}
+	}
+
+	return chunkData, nil
 }
 
 func nibblesToBytes(nibbles []byte) []byte {

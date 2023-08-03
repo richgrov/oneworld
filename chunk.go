@@ -7,13 +7,13 @@ import (
 	"github.com/richgrov/oneworld/blocks"
 )
 
-func chunkCoordsToIndex(x int32, y int32, z int32) int32 {
+func chunkCoordsToIndex(x, y, z int) int {
 	return x*16*128 + z*128 + y
 }
 
 type Chunk struct {
-	x          int32
-	z          int32
+	x          int
+	z          int
 	blocks     []blocks.Block
 	blockLight []byte
 	skyLight   []byte
@@ -21,10 +21,10 @@ type Chunk struct {
 }
 
 type chunkObserver interface {
-	initializeChunk(chunkX, chunkZ int32)
-	unloadChunk(chunkX, chunkZ int32)
-	sendChunk(chunkX, chunkZ int32, chunk *Chunk)
-	SendBlockChange(x, y, z int32, ty blocks.BlockType, data byte)
+	initializeChunk(chunkX, chunkZ int)
+	unloadChunk(chunkX, chunkZ int)
+	sendChunk(chunkX, chunkZ int, chunk *Chunk)
+	SendBlockChange(x, y, z int, ty blocks.BlockType, data byte)
 }
 
 func (ch *Chunk) isDataLoaded() bool {
