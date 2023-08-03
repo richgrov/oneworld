@@ -266,6 +266,10 @@ func (player *PlayerBase) Message(message string) {
 	})
 }
 
+func (player *PlayerBase) GetItemInSlot(slot byte) *ItemStack {
+	return &player.items[slot]
+}
+
 func (player *PlayerBase) SetItem(slot byte, item *ItemStack) {
 	player.items[slot] = *item
 	player.queuePacket(&protocol.SetSlotPacket{
