@@ -125,8 +125,10 @@ func (server *Server) addLoadedChunks() {
 			if result.Data.Blocks == nil {
 				result.Data.InitializeToAir()
 			}
+			chunk.blocks = result.Data.Blocks
+			chunk.blockLight = result.Data.BlockLight
+			chunk.skyLight = result.Data.SkyLight
 
-			chunk.initialize(result.Data)
 			for _, player := range chunk.observers {
 				player.sendChunk(result.Pos.X, result.Pos.Z, chunk)
 			}
@@ -164,7 +166,7 @@ func (server *Server) getChunkFromBlockPos(x int32, z int32) *Chunk {
 	return ch
 }
 
-func (server *Server) GetBlock(x int32, y int32, z int32) *Block {
+func (server *Server) GetBlock(x int32, y int32, z int32) *blocks.Block {
 	ch := server.getChunkFromBlockPos(x, z)
 	if ch == nil || !ch.isDataLoaded() {
 		return nil
@@ -174,7 +176,7 @@ func (server *Server) GetBlock(x int32, y int32, z int32) *Block {
 	return &ch.blocks[index]
 }
 
-func (server *Server) SetBlock(x int32, y int32, z int32, block Block) bool {
+func (server *Server) SetBlock(x int32, y int32, z int32, block blocks.Block) bool {
 	ch := server.getChunkFromBlockPos(x, z)
 	if ch == nil || !ch.isDataLoaded() {
 		return false
@@ -184,7 +186,7 @@ func (server *Server) SetBlock(x int32, y int32, z int32, block Block) bool {
 	ch.blocks[index] = block
 
 	for _, player := range ch.observers {
-		player.SendBlockChange(x, y, z, block.Type(), block.Data())
+		player.SendBlockChange(x, y, z, block.Type, block.Data)
 	}
 	return true
 }

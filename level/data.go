@@ -23,23 +23,20 @@ type ChunkPos struct {
 // The length of each slice in this struct should be equal to `ChunkSize`. None
 // of the slices should be nil
 type ChunkData struct {
-	Blocks     []byte
-	BlockData  []byte
+	Blocks     []blocks.Block
 	BlockLight []byte
 	SkyLight   []byte
 }
 
 func (cd *ChunkData) InitializeToAir() {
-	cd.Blocks = make([]byte, ChunkSize)
-	cd.BlockData = make([]byte, ChunkSize)
+	cd.Blocks = make([]blocks.Block, ChunkSize)
 	cd.BlockLight = make([]byte, ChunkSize)
 	cd.SkyLight = make([]byte, ChunkSize)
 }
 
-func (cd *ChunkData) Set(x uint, y uint, z uint, ty blocks.BlockType, data byte) {
+func (cd *ChunkData) Set(x uint, y uint, z uint, block blocks.Block) {
 	index := chunkPosToIndex(x, y, z)
-	cd.Blocks[index] = byte(ty)
-	cd.BlockData[index] = data
+	cd.Blocks[index] = block
 }
 
 type ChunkReadResult struct {

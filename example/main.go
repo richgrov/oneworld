@@ -15,8 +15,8 @@ func (*player) OnChat(string) {}
 
 func (player *player) OnDig(x, y, z int32, finishedDestroying bool) {
 	block := player.server.GetBlock(x, y, z)
-	if finishedDestroying || blocks.Hardness(block.Type()) == blocks.InstaBreak {
-		player.server.SetBlock(x, y, z, oneworld.NewBlock(blocks.Air, 0))
+	if finishedDestroying || blocks.Hardness(block.Type) == blocks.InstaBreak {
+		player.server.SetBlock(x, y, z, blocks.Block{blocks.Air, 0})
 	}
 }
 

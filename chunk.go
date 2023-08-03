@@ -5,7 +5,6 @@ import (
 	"compress/zlib"
 
 	"github.com/richgrov/oneworld/blocks"
-	"github.com/richgrov/oneworld/level"
 )
 
 func chunkCoordsToIndex(x int32, y int32, z int32) int32 {
@@ -15,7 +14,7 @@ func chunkCoordsToIndex(x int32, y int32, z int32) int32 {
 type Chunk struct {
 	x          int32
 	z          int32
-	blocks     []Block
+	blocks     []blocks.Block
 	blockLight []byte
 	skyLight   []byte
 	observers  []chunkObserver
@@ -50,26 +49,16 @@ func (chunk *Chunk) RemoveObserver(observer chunkObserver) {
 	}
 }
 
-func (ch *Chunk) initialize(data *level.ChunkData) {
-	ch.blocks = make([]Block, 16*16*128)
-	for i := 0; i < len(ch.blocks); i++ {
-		ch.blocks[i].ty = blocks.BlockType(data.Blocks[i])
-		ch.blocks[i].data = data.BlockData[i]
-	}
-	ch.blockLight = data.BlockLight
-	ch.skyLight = data.SkyLight
-}
-
 func (ch *Chunk) serializeToNetwork() []byte {
 	capacity := 16*16*128 + 16*16*64 + 16*16*64 + 16*16*64
 	data := bytes.NewBuffer(make([]byte, 0, capacity))
 
 	for _, block := range ch.blocks {
-		data.WriteByte(byte(block.Type()))
+		data.WriteByte(byte(block.Type))
 	}
 
 	for i := 0; i < len(ch.blocks); i += 2 {
-		data.WriteByte(ch.blocks[i].Data()&0b00001111 | ch.blocks[i+1].Data()<<4)
+		data.WriteByte(ch.blocks[i].Data&0b00001111 | ch.blocks[i+1].Data<<4)
 	}
 
 	packToNibbleArray(ch.blockLight, data)
