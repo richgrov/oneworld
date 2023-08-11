@@ -5,59 +5,31 @@ import (
 	"compress/zlib"
 
 	"github.com/richgrov/oneworld/blocks"
-	"github.com/richgrov/oneworld/level"
 )
 
-func chunkCoordsToIndex(x int32, y int32, z int32) int32 {
+const ChunkSize = 16 * 16 * 128
+
+func chunkCoordsToIndex(x, y, z int) int {
 	return x*16*128 + z*128 + y
 }
 
 type Chunk struct {
-	x          int32
-	z          int32
-	blocks     []Block
-	blockLight []byte
-	skyLight   []byte
-	observers  []chunkObserver
+	blocks     [ChunkSize]blocks.Block
+	blockLight [ChunkSize]byte
+	skyLight   [ChunkSize]byte
 }
 
-type chunkObserver interface {
-	initializeChunk(chunkX, chunkZ int32)
-	unloadChunk(chunkX, chunkZ int32)
-	sendChunk(chunkX, chunkZ int32, chunk *Chunk)
-	SendBlockChange(x, y, z int32, ty blocks.BlockType, data byte)
+type ChunkPos struct {
+	X int
+	Z int
 }
 
-func (ch *Chunk) isDataLoaded() bool {
-	return ch.blocks != nil
+func (chunk *Chunk) Set(x, y, z int, block blocks.Block) {
+	index := chunkCoordsToIndex(x, y, z)
+	chunk.blocks[index] = block
 }
 
-func (chunk *Chunk) AddObserver(observer chunkObserver) {
-	chunk.observers = append(chunk.observers, observer)
-	observer.initializeChunk(chunk.x, chunk.z)
-	if chunk.isDataLoaded() {
-		observer.sendChunk(chunk.x, chunk.z, chunk)
-	}
-}
-
-func (chunk *Chunk) RemoveObserver(observer chunkObserver) {
-	for i, obs := range chunk.observers {
-		if obs == observer {
-			observer.unloadChunk(chunk.x, chunk.z)
-			chunk.observers = append(chunk.observers[:i], chunk.observers[i+1:]...)
-			break
-		}
-	}
-}
-
-func (ch *Chunk) initialize(data *level.ChunkData) {
-	ch.blocks = make([]Block, 16*16*128)
-	for i := 0; i < len(ch.blocks); i++ {
-		ch.blocks[i].ty = blocks.BlockType(data.Blocks[i])
-		ch.blocks[i].data = data.BlockData[i]
-	}
-	ch.blockLight = data.BlockLight
-	ch.skyLight = data.SkyLight
+func (chunk *Chunk) removeObserver(observer chunkObserver) {
 }
 
 func (ch *Chunk) serializeToNetwork() []byte {
@@ -65,15 +37,15 @@ func (ch *Chunk) serializeToNetwork() []byte {
 	data := bytes.NewBuffer(make([]byte, 0, capacity))
 
 	for _, block := range ch.blocks {
-		data.WriteByte(byte(block.Type()))
+		data.WriteByte(byte(block.Type))
 	}
 
 	for i := 0; i < len(ch.blocks); i += 2 {
-		data.WriteByte(ch.blocks[i].Data()&0b00001111 | ch.blocks[i+1].Data()<<4)
+		data.WriteByte(ch.blocks[i].Data&0b00001111 | ch.blocks[i+1].Data<<4)
 	}
 
-	packToNibbleArray(ch.blockLight, data)
-	packToNibbleArray(ch.skyLight, data)
+	packToNibbleArray(ch.blockLight[:], data)
+	packToNibbleArray(ch.skyLight[:], data)
 
 	var out bytes.Buffer
 	w := zlib.NewWriter(&out)

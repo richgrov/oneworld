@@ -1,15 +1,22 @@
 package util
 
-import "math"
-
-func DivideAndFloorI32(a int32, b int32) int32 {
-	return int32(math.Floor(float64(a) / float64(b)))
+func IMin(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
 }
 
-func I32Abs(i int32) int32 {
+func IMax(a, b int) int {
+	if a > b {
+		return a
+	}
+	return b
+}
+
+func IAbs(i int) int {
 	if i < 0 {
 		return -i
-	} else {
-		return i
 	}
+	return i
 }

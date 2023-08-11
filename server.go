@@ -5,8 +5,7 @@ import (
 	"math"
 	"time"
 
-	"github.com/richgrov/oneworld/internal/util"
-	"github.com/richgrov/oneworld/level"
+	"github.com/richgrov/oneworld/blocks"
 )
 
 const protocolVersion = 14
@@ -19,47 +18,60 @@ type Server struct {
 	// main tick loop.
 	messageQueue chan func()
 
-	worldLoader worldLoader
-
 	entities     map[int32]Entity
 	nextEntityId int32
 
-	// All the chunks on the server.
-	//
-	// If the map does not contain the key:
-	// - The chunk is not loaded AND it is not actively being loaded
-	//
-	// If the map contains the key, but chunk.isDataLoaded() is false:
-	// - The chunk is currently being loaded
-	//
-	// If the map contains the key AND chunk.isDataLoaded() is true:
-	// - The chunk along with all its data is loaded and valid
-	//
-	// The map should never contain a key pointing to nil.
-	chunks            map[level.ChunkPos]*Chunk
-	chunkLoadConsumer chan level.ChunkReadResult
+	chunks        []*Chunk
+	entityTracker []indexedEntities
+	chunkDiameter int
 }
 
-type worldLoader interface {
-	ReadWorldInfo() (level.WorldInfo, error)
-	LoadChunks([]level.ChunkPos, chan level.ChunkReadResult)
+type indexedEntities struct {
+	observers []chunkObserver
 }
 
-func NewServer(worldLoader worldLoader) (*Server, error) {
+type chunkObserver interface {
+	initializeChunk(chunkX, chunkZ int)
+	unloadChunk(chunkX, chunkZ int)
+	sendChunk(chunkX, chunkZ int, chunk *Chunk)
+	SendBlockChange(x, y, z int, ty blocks.BlockType, data byte)
+}
+
+func NewServer(chunkDiameter int, chunks []*Chunk) (*Server, error) {
+	if chunkDiameter <= 0 {
+		return nil, fmt.Errorf("invalid chunk diameter %d", chunkDiameter)
+	}
+
+	if len(chunks) != chunkDiameter*chunkDiameter {
+		return nil, fmt.Errorf(
+			"expected %d chunks because map diameter was %d, but got %d", chunkDiameter*chunkDiameter, chunkDiameter, len(chunks),
+		)
+	}
+
+	entityIndices := make([]indexedEntities, chunkDiameter*chunkDiameter)
+	for i := range entityIndices {
+		entityIndices[i] = indexedEntities{
+			observers: make([]chunkObserver, 0),
+		}
+	}
+
 	server := &Server{
 		ticker:       time.NewTicker(time.Second / ticksPerSecond),
 		messageQueue: make(chan func(), messageQueueBacklog),
 
-		worldLoader: worldLoader,
-
 		entities:     make(map[int32]Entity),
 		nextEntityId: 0,
 
-		chunks:            make(map[level.ChunkPos]*Chunk),
-		chunkLoadConsumer: make(chan level.ChunkReadResult, 32),
+		chunks:        chunks,
+		entityTracker: entityIndices,
+		chunkDiameter: chunkDiameter,
 	}
 
 	return server, nil
+}
+
+func (server *Server) ChunkDiameter() int {
+	return server.chunkDiameter
 }
 
 func (server *Server) AddEntity(entity Entity) {
@@ -89,7 +101,6 @@ func (server *Server) Ticker() <-chan time.Time {
 func (server *Server) Tick() {
 	server.drainMessageQueue()
 	server.tickEntities()
-	server.addLoadedChunks()
 }
 
 func (server *Server) drainMessageQueue() {
@@ -109,84 +120,81 @@ func (server *Server) tickEntities() {
 	}
 }
 
-func (server *Server) addLoadedChunks() {
-	for {
-		select {
-		case result := <-server.chunkLoadConsumer:
-			chunk := server.chunks[result.Pos]
+func (server *Server) addChunkObserver(chunkX, chunkZ int, observer chunkObserver) {
+	index := server.indexedEntities(chunkX, chunkZ)
+	index.observers = append(index.observers, observer)
+	observer.initializeChunk(chunkX, chunkZ)
 
-			if result.Error != nil {
-				delete(server.chunks, result.Pos)
-				fmt.Printf("%s", result.Error)
-				continue
-			}
+	chunk := server.Chunk(chunkX, chunkZ)
+	if chunk != nil {
+		observer.sendChunk(chunkX, chunkZ, chunk)
+	}
+}
 
-			// TODO: Until chunk generator is implemented, just set the chunk to air
-			if result.Data.Blocks == nil {
-				result.Data.InitializeToAir()
-			}
-
-			chunk.initialize(result.Data)
-			for _, player := range chunk.observers {
-				player.sendChunk(result.Pos.X, result.Pos.Z, chunk)
-			}
-		default:
-			return
+func (server *Server) removeChunkObserver(chunkX, chunkZ int, observer chunkObserver) {
+	index := server.indexedEntities(chunkX, chunkZ)
+	for i, obs := range index.observers {
+		if obs == observer {
+			observer.unloadChunk(chunkX, chunkZ)
+			index.observers = append(index.observers[:i], index.observers[i+1:]...)
+			break
 		}
 	}
 }
 
-func (server *Server) InitializeChunk(pos level.ChunkPos, observers ...chunkObserver) {
-	chunk := &Chunk{
-		x:         pos.X,
-		z:         pos.Z,
-		observers: make([]chunkObserver, 0, len(observers)),
-	}
-	for _, observer := range observers {
-		chunk.AddObserver(observer)
-	}
-	server.chunks[pos] = chunk
-}
-
-func (server *Server) LoadChunks(positions []level.ChunkPos) {
-	go server.worldLoader.LoadChunks(positions, server.chunkLoadConsumer)
-}
-
-func (server *Server) GetChunk(pos level.ChunkPos) *Chunk {
-	return server.chunks[pos]
-}
-
-func (server *Server) getChunkFromBlockPos(x int32, z int32) *Chunk {
-	ch, _ := server.chunks[level.ChunkPos{
-		util.DivideAndFloorI32(x, 16),
-		util.DivideAndFloorI32(z, 16),
-	}]
-	return ch
-}
-
-func (server *Server) GetBlock(x int32, y int32, z int32) *Block {
-	ch := server.getChunkFromBlockPos(x, z)
-	if ch == nil || !ch.isDataLoaded() {
+func (server *Server) Chunk(chunkX, chunkZ int) *Chunk {
+	if chunkX < 0 || chunkX >= server.chunkDiameter || chunkZ < 0 || chunkZ >= server.chunkDiameter {
 		return nil
 	}
-
-	index := chunkCoordsToIndex(util.I32Abs(x%16), y, util.I32Abs(z%16))
-	return &ch.blocks[index]
+	return server.chunks[chunkZ*server.chunkDiameter+chunkX]
 }
 
-func (server *Server) SetBlock(x int32, y int32, z int32, block Block) bool {
-	ch := server.getChunkFromBlockPos(x, z)
-	if ch == nil || !ch.isDataLoaded() {
+func (server *Server) addChunk(chunkX, chunkZ int, chunk *Chunk) {
+	if chunkX < 0 || chunkX >= server.chunkDiameter || chunkZ < 0 || chunkZ >= server.chunkDiameter {
+		msg := fmt.Sprint("chunk out of bounds: x=", chunkX, " z=", chunkZ, " diameter=", server.chunkDiameter)
+		panic(msg)
+	}
+	server.chunks[chunkZ*server.chunkDiameter+chunkX] = chunk
+}
+
+func (server *Server) ChunkFromBlockPos(x, z int) *Chunk {
+	return server.Chunk(x/16, z/16)
+}
+
+func (server *Server) GetBlock(x, y, z int) blocks.Block {
+	ch := server.ChunkFromBlockPos(x, z)
+	if ch == nil {
+		return blocks.Block{}
+	}
+
+	index := chunkCoordsToIndex(x%16, y, z%16)
+	return ch.blocks[index]
+}
+
+func (server *Server) SetBlock(x, y, z int, block blocks.Block) bool {
+	chunkX := x / 16
+	chunkZ := z / 16
+
+	ch := server.Chunk(chunkX, chunkZ)
+	if ch == nil {
 		return false
 	}
 
-	index := chunkCoordsToIndex(util.I32Abs(x%16), y, util.I32Abs(z%16))
+	index := chunkCoordsToIndex(x%16, y, z%16)
 	ch.blocks[index] = block
 
-	for _, player := range ch.observers {
-		player.SendBlockChange(x, y, z, block.Type(), block.Data())
+	for _, player := range server.indexedEntities(chunkX, chunkZ).observers {
+		player.SendBlockChange(x, y, z, block.Type, block.Data)
 	}
 	return true
+}
+
+func (server *Server) indexedEntities(chunkX, chunkZ int) *indexedEntities {
+	if chunkX < 0 || chunkX >= server.chunkDiameter || chunkZ < 0 || chunkZ >= server.chunkDiameter {
+		msg := fmt.Sprint("entity index out of bounds: x=", chunkX, " z=", chunkZ, " diameter=", server.chunkDiameter)
+		panic(msg)
+	}
+	return &server.entityTracker[chunkZ*server.chunkDiameter+chunkX]
 }
 
 // Stops all running server processes. The function will block until all

@@ -1,5 +1,10 @@
 package blocks
 
+type Block struct {
+	Type BlockType
+	Data byte
+}
+
 type BlockType byte
 
 const (

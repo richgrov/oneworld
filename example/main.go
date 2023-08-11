@@ -3,55 +3,28 @@ package main
 import (
 	"github.com/richgrov/oneworld"
 	"github.com/richgrov/oneworld/blocks"
-	"github.com/richgrov/oneworld/level"
 )
 
 type player struct {
-	oneworld.PlayerBase
-	server *oneworld.Server
+	oneworld.PlayerBase[*oneworld.Server]
 }
 
 func (*player) OnChat(string) {}
 
-func (player *player) OnDig(x, y, z int32, finishedDestroying bool) {
-	block := player.server.GetBlock(x, y, z)
-	if finishedDestroying || blocks.Hardness(block.Type()) == blocks.InstaBreak {
-		player.server.SetBlock(x, y, z, oneworld.NewBlock(blocks.Air, 0))
+func (player *player) OnDig(x, y, z int, finishedDestroying bool) {
+	block := player.Server.GetBlock(x, y, z)
+	if finishedDestroying || blocks.Hardness(block.Type) == blocks.InstaBreak {
+		player.Server.SetBlock(x, y, z, blocks.Block{blocks.Air, 0})
 	}
 }
 
-func (*player) OnInteract(x, y, z, x1, y1, z1 int32) {}
-
-func (player *player) OnUpdateChunkViewRange(outOfRange []level.ChunkPos, inRange []level.ChunkPos) {
-	for _, pos := range outOfRange {
-		chunk := player.server.GetChunk(pos)
-		if chunk != nil {
-			chunk.RemoveObserver(player)
-		}
-	}
-
-	chunksToLoad := make([]level.ChunkPos, 0)
-
-	for _, pos := range inRange {
-		chunk := player.server.GetChunk(pos)
-		if chunk != nil {
-			chunk.AddObserver(player)
-			continue
-		}
-
-		player.server.InitializeChunk(pos, player)
-		chunksToLoad = append(chunksToLoad, pos)
-	}
-
-	if len(chunksToLoad) > 0 {
-		player.server.LoadChunks(chunksToLoad)
-	}
-}
+func (*player) OnInteract(x, y, z, x1, y1, z1 int) {}
 
 func createPlayer(baseEntity *oneworld.EntityBase, conn *oneworld.AcceptedConnection, server *oneworld.Server) *player {
 	player := new(player)
 	base := oneworld.NewBasePlayer(
 		*baseEntity,
+		server,
 		conn,
 		16,
 		0,
@@ -59,7 +32,6 @@ func createPlayer(baseEntity *oneworld.EntityBase, conn *oneworld.AcceptedConnec
 		player,
 	)
 	player.PlayerBase = base
-	player.server = server
 	return player
 }
 
@@ -71,7 +43,21 @@ func main() {
 	go listener.Run()
 	defer listener.Close()
 
-	server, err := oneworld.NewServer(&level.McRegionLoader{"world"})
+	chunks := make([]*oneworld.Chunk, 16*16)
+	for i := 0; i < len(chunks); i++ {
+		chunk := new(oneworld.Chunk)
+
+		for x := 0; x < 16; x++ {
+			for z := 0; z < 16; z++ {
+				chunk.Set(x, 10, z, blocks.Block{
+					Type: blocks.Stone,
+				})
+			}
+		}
+		chunks[i] = chunk
+	}
+
+	server, err := oneworld.NewServer(16, chunks)
 	if err != nil {
 		panic(err)
 	}
