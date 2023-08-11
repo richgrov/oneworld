@@ -29,7 +29,14 @@ func (chunk *Chunk) Set(x, y, z int, block blocks.Block) {
 	chunk.blocks[index] = block
 }
 
-func (chunk *Chunk) removeObserver(observer chunkObserver) {
+func (chunk *Chunk) SetBlockLight(x, y, z int, level byte) {
+	index := chunkCoordsToIndex(x, y, z)
+	chunk.blockLight[index] = level
+}
+
+func (chunk *Chunk) SetSkyLight(x, y, z int, level byte) {
+	index := chunkCoordsToIndex(x, y, z)
+	chunk.skyLight[index] = level
 }
 
 func (ch *Chunk) serializeToNetwork() []byte {
