@@ -3,7 +3,6 @@ package main
 import (
 	"github.com/richgrov/oneworld"
 	"github.com/richgrov/oneworld/blocks"
-	"github.com/richgrov/oneworld/level"
 )
 
 type player struct {
@@ -22,29 +21,17 @@ func (player *player) OnDig(x, y, z int, finishedDestroying bool) {
 
 func (*player) OnInteract(x, y, z, x1, y1, z1 int) {}
 
-func (player *player) OnUpdateChunkViewRange(outOfRange []level.ChunkPos, inRange []level.ChunkPos) {
+func (player *player) OnUpdateChunkViewRange(outOfRange []oneworld.ChunkPos, inRange []oneworld.ChunkPos) {
 	for _, pos := range outOfRange {
-		chunk := player.server.Chunk(pos.X, pos.Z)
-		if chunk != nil {
-			chunk.RemoveObserver(player)
+		if pos.X < 16 && pos.Z < 16 {
+			player.server.RemoveChunkObserver(pos.X, pos.Z, player)
 		}
 	}
-
-	chunksToLoad := make([]level.ChunkPos, 0)
 
 	for _, pos := range inRange {
-		chunk := player.server.Chunk(pos.X, pos.Z)
-		if chunk != nil {
-			chunk.AddObserver(player)
-			continue
+		if pos.X < 16 && pos.Z < 16 {
+			player.server.AddChunkObserver(pos.X, pos.Z, player)
 		}
-
-		player.server.InitializeChunk(pos.X, pos.Z, player)
-		chunksToLoad = append(chunksToLoad, pos)
-	}
-
-	if len(chunksToLoad) > 0 {
-		player.server.LoadChunks(chunksToLoad)
 	}
 }
 
@@ -71,9 +58,22 @@ func main() {
 	go listener.Run()
 	defer listener.Close()
 
-	server, err := oneworld.NewServer(&level.McRegionLoader{
-		WorldDir: "world",
-	}, 32)
+	chunks := make([]*oneworld.Chunk, 16*16)
+	for i := 0; i < len(chunks); i++ {
+		chunk := oneworld.NewChunk(i%16, i/16)
+		chunk.InitializeToAir()
+
+		for x := 0; x < 16; x++ {
+			for z := 0; z < 16; z++ {
+				chunk.Set(x, 10, z, blocks.Block{
+					Type: blocks.Stone,
+				})
+			}
+		}
+		chunks[i] = chunk
+	}
+
+	server, err := oneworld.NewServer(16, chunks)
 	if err != nil {
 		panic(err)
 	}

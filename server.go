@@ -6,7 +6,6 @@ import (
 	"time"
 
 	"github.com/richgrov/oneworld/blocks"
-	"github.com/richgrov/oneworld/level"
 )
 
 const protocolVersion = 14
@@ -18,8 +17,6 @@ type Server struct {
 	// Functions added to this channel will be invoked from the goroutine of the
 	// main tick loop.
 	messageQueue chan func()
-
-	worldLoader worldLoader
 
 	entities     map[int32]Entity
 	nextEntityId int32
@@ -36,32 +33,30 @@ type Server struct {
 	// - The chunk along with all its data is loaded and valid
 	//
 	// The map should never contain a key pointing to nil.
-	chunks            []*Chunk
-	chunkDiameter     int
-	chunkLoadConsumer chan level.ChunkReadResult
+	chunks        []*Chunk
+	chunkDiameter int
 }
 
-type worldLoader interface {
-	ReadWorldInfo() (level.WorldInfo, error)
-	LoadChunks([]level.ChunkPos, chan level.ChunkReadResult)
-}
-
-func NewServer(worldLoader worldLoader, chunkDiameter int) (*Server, error) {
+func NewServer(chunkDiameter int, chunks []*Chunk) (*Server, error) {
 	if chunkDiameter <= 0 {
-		panic("chunk diameter must be positive")
+		return nil, fmt.Errorf("invalid chunk diameter %d", chunkDiameter)
 	}
+
+	if len(chunks) != chunkDiameter*chunkDiameter {
+		return nil, fmt.Errorf(
+			"expected %d chunks because map diameter was %d, but got %d", chunkDiameter*chunkDiameter, chunkDiameter, len(chunks),
+		)
+	}
+
 	server := &Server{
 		ticker:       time.NewTicker(time.Second / ticksPerSecond),
 		messageQueue: make(chan func(), messageQueueBacklog),
 
-		worldLoader: worldLoader,
-
 		entities:     make(map[int32]Entity),
 		nextEntityId: 0,
 
-		chunks:            make([]*Chunk, chunkDiameter*chunkDiameter),
-		chunkDiameter:     chunkDiameter,
-		chunkLoadConsumer: make(chan level.ChunkReadResult, 32),
+		chunks:        chunks,
+		chunkDiameter: chunkDiameter,
 	}
 
 	return server, nil
@@ -94,7 +89,6 @@ func (server *Server) Ticker() <-chan time.Time {
 func (server *Server) Tick() {
 	server.drainMessageQueue()
 	server.tickEntities()
-	server.addLoadedChunks()
 }
 
 func (server *Server) drainMessageQueue() {
@@ -114,49 +108,23 @@ func (server *Server) tickEntities() {
 	}
 }
 
-func (server *Server) addLoadedChunks() {
-	for {
-		select {
-		case result := <-server.chunkLoadConsumer:
-			chunk := server.Chunk(result.ChunkX, result.ChunkZ)
-
-			if result.Error != nil {
-				fmt.Printf("%s", result.Error)
-				server.SetChunk(result.ChunkX, result.ChunkZ, nil)
-				continue
-			}
-
-			// TODO: Until chunk generator is implemented, just set the chunk to air
-			if result.Data.Blocks == nil {
-				result.Data.InitializeToAir()
-			}
-			chunk.blocks = result.Data.Blocks
-			chunk.blockLight = result.Data.BlockLight
-			chunk.skyLight = result.Data.SkyLight
-
-			for _, player := range chunk.observers {
-				player.sendChunk(result.ChunkX, result.ChunkZ, chunk)
-			}
-		default:
-			return
-		}
+func (server *Server) AddChunkObserver(chunkX, chunkZ int, observer chunkObserver) {
+	chunk := server.Chunk(chunkX, chunkZ)
+	if chunk != nil {
+		chunk.addObserver(observer)
+		return
 	}
+
+	chunk = NewChunk(chunkX, chunkZ)
+	chunk.addObserver(observer)
+	server.addChunk(chunk)
 }
 
-func (server *Server) InitializeChunk(chunkX, chunkZ int, observers ...chunkObserver) {
-	chunk := &Chunk{
-		x:         chunkX,
-		z:         chunkZ,
-		observers: make([]chunkObserver, 0, len(observers)),
+func (server *Server) RemoveChunkObserver(chunkX, chunkZ int, observer chunkObserver) {
+	chunk := server.Chunk(chunkX, chunkZ)
+	if chunk != nil {
+		chunk.removeObserver(observer)
 	}
-	for _, observer := range observers {
-		chunk.AddObserver(observer)
-	}
-	server.SetChunk(chunkX, chunkZ, chunk)
-}
-
-func (server *Server) LoadChunks(positions []level.ChunkPos) {
-	go server.worldLoader.LoadChunks(positions, server.chunkLoadConsumer)
 }
 
 func (server *Server) Chunk(chunkX, chunkZ int) *Chunk {
@@ -166,12 +134,12 @@ func (server *Server) Chunk(chunkX, chunkZ int) *Chunk {
 	return server.chunks[chunkZ*server.chunkDiameter+chunkX]
 }
 
-func (server *Server) SetChunk(chunkX, chunkZ int, val *Chunk) {
-	if chunkX < 0 || chunkX >= server.chunkDiameter || chunkZ < 0 || chunkZ >= server.chunkDiameter {
-		msg := fmt.Sprint("chunk out of bounds: x =", chunkX, "z =", chunkZ, "diameter =", server.chunkDiameter)
+func (server *Server) addChunk(chunk *Chunk) {
+	if chunk.x < 0 || chunk.x >= server.chunkDiameter || chunk.z < 0 || chunk.z >= server.chunkDiameter {
+		msg := fmt.Sprint("chunk out of bounds: x =", chunk.x, " z =", chunk.z, " diameter =", server.chunkDiameter)
 		panic(msg)
 	}
-	server.chunks[chunkZ*server.chunkDiameter+chunkX] = val
+	server.chunks[chunk.z*server.chunkDiameter+chunk.x] = chunk
 }
 
 func (server *Server) ChunkFromBlockPos(x, z int) *Chunk {

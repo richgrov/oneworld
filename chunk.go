@@ -7,6 +7,8 @@ import (
 	"github.com/richgrov/oneworld/blocks"
 )
 
+const ChunkSize = 16 * 16 * 128
+
 func chunkCoordsToIndex(x, y, z int) int {
 	return x*16*128 + z*128 + y
 }
@@ -20,6 +22,30 @@ type Chunk struct {
 	observers  []chunkObserver
 }
 
+type ChunkPos struct {
+	X int
+	Z int
+}
+
+func NewChunk(chunkX, chunkZ int) *Chunk {
+	return &Chunk{
+		x:         chunkX,
+		z:         chunkZ,
+		observers: make([]chunkObserver, 0),
+	}
+}
+
+func (chunk *Chunk) InitializeToAir() {
+	chunk.blocks = make([]blocks.Block, ChunkSize)
+	chunk.blockLight = make([]byte, ChunkSize)
+	chunk.skyLight = make([]byte, ChunkSize)
+}
+
+func (chunk *Chunk) Set(x, y, z int, block blocks.Block) {
+	index := chunkCoordsToIndex(x, y, z)
+	chunk.blocks[index] = block
+}
+
 type chunkObserver interface {
 	initializeChunk(chunkX, chunkZ int)
 	unloadChunk(chunkX, chunkZ int)
@@ -31,7 +57,7 @@ func (ch *Chunk) isDataLoaded() bool {
 	return ch.blocks != nil
 }
 
-func (chunk *Chunk) AddObserver(observer chunkObserver) {
+func (chunk *Chunk) addObserver(observer chunkObserver) {
 	chunk.observers = append(chunk.observers, observer)
 	observer.initializeChunk(chunk.x, chunk.z)
 	if chunk.isDataLoaded() {
@@ -39,7 +65,7 @@ func (chunk *Chunk) AddObserver(observer chunkObserver) {
 	}
 }
 
-func (chunk *Chunk) RemoveObserver(observer chunkObserver) {
+func (chunk *Chunk) removeObserver(observer chunkObserver) {
 	for i, obs := range chunk.observers {
 		if obs == observer {
 			observer.unloadChunk(chunk.x, chunk.z)

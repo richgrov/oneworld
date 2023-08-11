@@ -10,7 +10,6 @@ import (
 	"github.com/richgrov/oneworld/blocks"
 	"github.com/richgrov/oneworld/internal/protocol"
 	"github.com/richgrov/oneworld/internal/util"
-	"github.com/richgrov/oneworld/level"
 )
 
 const packetBacklog = 32
@@ -54,16 +53,16 @@ func (player *PlayerBase) OnSpawned() {
 	chunkZ := int(math.Floor(player.z / 16))
 
 	viewDiameter := player.viewDist*2 + 1
-	chunksToLoad := make([]level.ChunkPos, 0, viewDiameter*viewDiameter)
+	chunksToLoad := make([]ChunkPos, 0, viewDiameter*viewDiameter)
 	for cx := util.IMax(chunkX-player.viewDist, 0); cx <= chunkX+player.viewDist; cx++ {
 		for cz := util.IMax(chunkZ-player.viewDist, 0); cz <= chunkZ+player.viewDist; cz++ {
-			chunksToLoad = append(chunksToLoad, level.ChunkPos{
+			chunksToLoad = append(chunksToLoad, ChunkPos{
 				X: cx,
 				Z: cz,
 			})
 		}
 	}
-	player.eventHandler.OnUpdateChunkViewRange([]level.ChunkPos{}, chunksToLoad)
+	player.eventHandler.OnUpdateChunkViewRange([]ChunkPos{}, chunksToLoad)
 }
 
 func NewBasePlayer(
@@ -136,12 +135,12 @@ func (player *PlayerBase) Teleport(x float64, y float64, z float64) {
 	newChunkX := int(math.Floor(x / 16))
 	newChunkZ := int(math.Floor(z / 16))
 
-	chunksToUnload := make([]level.ChunkPos, 0, player.viewDist*3)
+	chunksToUnload := make([]ChunkPos, 0, player.viewDist*3)
 	for cx := util.IMax(chunkX-player.viewDist, 0); cx <= chunkX+player.viewDist; cx++ {
 		for cz := util.IMax(chunkZ-player.viewDist, 0); cz <= chunkZ+player.viewDist; cz++ {
 			canSeeChunk := util.IAbs(cx-newChunkX) <= player.viewDist && util.IAbs(cz-newChunkZ) <= player.viewDist
 			if !canSeeChunk {
-				chunksToUnload = append(chunksToUnload, level.ChunkPos{
+				chunksToUnload = append(chunksToUnload, ChunkPos{
 					X: cx,
 					Z: cz,
 				})
@@ -149,12 +148,12 @@ func (player *PlayerBase) Teleport(x float64, y float64, z float64) {
 		}
 	}
 
-	chunksToLoad := make([]level.ChunkPos, 0, player.viewDist*3)
+	chunksToLoad := make([]ChunkPos, 0, player.viewDist*3)
 	for cx := newChunkX - player.viewDist; cx <= newChunkX+player.viewDist; cx++ {
 		for cz := newChunkZ - player.viewDist; cz <= newChunkZ+player.viewDist; cz++ {
 			sawChunkBefore := util.IAbs(cx-chunkX) <= player.viewDist && util.IAbs(cz-chunkZ) <= player.viewDist
 			if !sawChunkBefore {
-				chunksToLoad = append(chunksToLoad, level.ChunkPos{
+				chunksToLoad = append(chunksToLoad, ChunkPos{
 					X: cx,
 					Z: cz,
 				})
@@ -309,5 +308,5 @@ type PlayerEventHandler interface {
 	OnChat(message string)
 	OnInteract(clickedX, clickedY, clickedZ, newX, newY, newZ int)
 	OnDig(x, y, z int, finishedDestroying bool)
-	OnUpdateChunkViewRange(unload []level.ChunkPos, load []level.ChunkPos)
+	OnUpdateChunkViewRange(unload []ChunkPos, load []ChunkPos)
 }
