@@ -128,7 +128,7 @@ func (server *Server) Chunk(chunkX, chunkZ int) *Chunk {
 
 func (server *Server) addChunk(chunk *Chunk) {
 	if chunk.x < 0 || chunk.x >= server.chunkDiameter || chunk.z < 0 || chunk.z >= server.chunkDiameter {
-		msg := fmt.Sprint("chunk out of bounds: x =", chunk.x, " z =", chunk.z, " diameter =", server.chunkDiameter)
+		msg := fmt.Sprint("chunk out of bounds: x=", chunk.x, " z=", chunk.z, " diameter=", server.chunkDiameter)
 		panic(msg)
 	}
 	server.chunks[chunk.z*server.chunkDiameter+chunk.x] = chunk
