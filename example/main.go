@@ -18,7 +18,8 @@ func (player *player) OnDig(x, y, z int, finishedDestroying bool) {
 	}
 }
 
-func (*player) OnInteract(x, y, z, x1, y1, z1 int) {}
+func (*player) OnInteractBlock(x, y, z, x1, y1, z1 int) {}
+func (*player) OnInteractAir()                          {}
 
 func createPlayer(baseEntity *oneworld.EntityBase, conn *oneworld.AcceptedConnection, server *oneworld.Server) *player {
 	player := new(player)

@@ -220,9 +220,12 @@ func (player *PlayerBase[S]) handlePacket(packet any) {
 				x--
 			case protocol.PositiveX:
 				x++
+			case protocol.None:
+				player.eventHandler.OnInteractAir()
+				return
 			}
 
-			player.eventHandler.OnInteract(int(pkt.X), int(pkt.Y), int(pkt.Z), int(x), int(y), int(z))
+			player.eventHandler.OnInteractBlock(int(pkt.X), int(pkt.Y), int(pkt.Z), int(x), int(y), int(z))
 		}
 	}
 }
@@ -298,6 +301,7 @@ func (player *PlayerBase[S]) Disconnect() {
 
 type PlayerEventHandler interface {
 	OnChat(message string)
-	OnInteract(clickedX, clickedY, clickedZ, newX, newY, newZ int)
+	OnInteractBlock(clickedX, clickedY, clickedZ, newX, newY, newZ int)
+	OnInteractAir()
 	OnDig(x, y, z int, finishedDestroying bool)
 }
