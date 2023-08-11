@@ -22,7 +22,19 @@ type Server struct {
 	nextEntityId int32
 
 	chunks        []*Chunk
+	entityTracker []indexedEntities
 	chunkDiameter int
+}
+
+type indexedEntities struct {
+	observers []chunkObserver
+}
+
+type chunkObserver interface {
+	initializeChunk(chunkX, chunkZ int)
+	unloadChunk(chunkX, chunkZ int)
+	sendChunk(chunkX, chunkZ int, chunk *Chunk)
+	SendBlockChange(x, y, z int, ty blocks.BlockType, data byte)
 }
 
 func NewServer(chunkDiameter int, chunks []*Chunk) (*Server, error) {
@@ -36,6 +48,13 @@ func NewServer(chunkDiameter int, chunks []*Chunk) (*Server, error) {
 		)
 	}
 
+	entityIndices := make([]indexedEntities, chunkDiameter*chunkDiameter)
+	for i := range entityIndices {
+		entityIndices[i] = indexedEntities{
+			observers: make([]chunkObserver, 0),
+		}
+	}
+
 	server := &Server{
 		ticker:       time.NewTicker(time.Second / ticksPerSecond),
 		messageQueue: make(chan func(), messageQueueBacklog),
@@ -44,6 +63,7 @@ func NewServer(chunkDiameter int, chunks []*Chunk) (*Server, error) {
 		nextEntityId: 0,
 
 		chunks:        chunks,
+		entityTracker: entityIndices,
 		chunkDiameter: chunkDiameter,
 	}
 
@@ -101,21 +121,24 @@ func (server *Server) tickEntities() {
 }
 
 func (server *Server) addChunkObserver(chunkX, chunkZ int, observer chunkObserver) {
+	index := server.indexedEntities(chunkX, chunkZ)
+	index.observers = append(index.observers, observer)
+	observer.initializeChunk(chunkX, chunkZ)
+
 	chunk := server.Chunk(chunkX, chunkZ)
 	if chunk != nil {
-		chunk.addObserver(observer)
-		return
+		observer.sendChunk(chunkX, chunkZ, chunk)
 	}
-
-	chunk = NewChunk(chunkX, chunkZ)
-	chunk.addObserver(observer)
-	server.addChunk(chunk)
 }
 
 func (server *Server) removeChunkObserver(chunkX, chunkZ int, observer chunkObserver) {
-	chunk := server.Chunk(chunkX, chunkZ)
-	if chunk != nil {
-		chunk.removeObserver(observer)
+	index := server.indexedEntities(chunkX, chunkZ)
+	for i, obs := range index.observers {
+		if obs == observer {
+			observer.unloadChunk(chunkX, chunkZ)
+			index.observers = append(index.observers[:i], index.observers[i+1:]...)
+			break
+		}
 	}
 }
 
@@ -126,12 +149,12 @@ func (server *Server) Chunk(chunkX, chunkZ int) *Chunk {
 	return server.chunks[chunkZ*server.chunkDiameter+chunkX]
 }
 
-func (server *Server) addChunk(chunk *Chunk) {
-	if chunk.x < 0 || chunk.x >= server.chunkDiameter || chunk.z < 0 || chunk.z >= server.chunkDiameter {
-		msg := fmt.Sprint("chunk out of bounds: x=", chunk.x, " z=", chunk.z, " diameter=", server.chunkDiameter)
+func (server *Server) addChunk(chunkX, chunkZ int, chunk *Chunk) {
+	if chunkX < 0 || chunkX >= server.chunkDiameter || chunkZ < 0 || chunkZ >= server.chunkDiameter {
+		msg := fmt.Sprint("chunk out of bounds: x=", chunkX, " z=", chunkZ, " diameter=", server.chunkDiameter)
 		panic(msg)
 	}
-	server.chunks[chunk.z*server.chunkDiameter+chunk.x] = chunk
+	server.chunks[chunkZ*server.chunkDiameter+chunkX] = chunk
 }
 
 func (server *Server) ChunkFromBlockPos(x, z int) *Chunk {
@@ -140,7 +163,7 @@ func (server *Server) ChunkFromBlockPos(x, z int) *Chunk {
 
 func (server *Server) GetBlock(x, y, z int) blocks.Block {
 	ch := server.ChunkFromBlockPos(x, z)
-	if ch == nil || !ch.isDataLoaded() {
+	if ch == nil {
 		return blocks.Block{}
 	}
 
@@ -149,18 +172,29 @@ func (server *Server) GetBlock(x, y, z int) blocks.Block {
 }
 
 func (server *Server) SetBlock(x, y, z int, block blocks.Block) bool {
-	ch := server.ChunkFromBlockPos(x, z)
-	if ch == nil || !ch.isDataLoaded() {
+	chunkX := x / 16
+	chunkZ := z / 16
+
+	ch := server.Chunk(chunkX, chunkZ)
+	if ch == nil {
 		return false
 	}
 
 	index := chunkCoordsToIndex(x%16, y, z%16)
 	ch.blocks[index] = block
 
-	for _, player := range ch.observers {
+	for _, player := range server.indexedEntities(chunkX, chunkZ).observers {
 		player.SendBlockChange(x, y, z, block.Type, block.Data)
 	}
 	return true
+}
+
+func (server *Server) indexedEntities(chunkX, chunkZ int) *indexedEntities {
+	if chunkX < 0 || chunkX >= server.chunkDiameter || chunkZ < 0 || chunkZ >= server.chunkDiameter {
+		msg := fmt.Sprint("entity index out of bounds: x=", chunkX, " z=", chunkZ, " diameter=", server.chunkDiameter)
+		panic(msg)
+	}
+	return &server.entityTracker[chunkZ*server.chunkDiameter+chunkX]
 }
 
 // Stops all running server processes. The function will block until all

@@ -45,8 +45,7 @@ func main() {
 
 	chunks := make([]*oneworld.Chunk, 16*16)
 	for i := 0; i < len(chunks); i++ {
-		chunk := oneworld.NewChunk(i%16, i/16)
-		chunk.InitializeToAir()
+		chunk := new(oneworld.Chunk)
 
 		for x := 0; x < 16; x++ {
 			for z := 0; z < 16; z++ {

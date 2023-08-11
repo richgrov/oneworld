@@ -14,12 +14,9 @@ func chunkCoordsToIndex(x, y, z int) int {
 }
 
 type Chunk struct {
-	x          int
-	z          int
-	blocks     []blocks.Block
-	blockLight []byte
-	skyLight   []byte
-	observers  []chunkObserver
+	blocks     [ChunkSize]blocks.Block
+	blockLight [ChunkSize]byte
+	skyLight   [ChunkSize]byte
 }
 
 type ChunkPos struct {
@@ -27,52 +24,12 @@ type ChunkPos struct {
 	Z int
 }
 
-func NewChunk(chunkX, chunkZ int) *Chunk {
-	return &Chunk{
-		x:         chunkX,
-		z:         chunkZ,
-		observers: make([]chunkObserver, 0),
-	}
-}
-
-func (chunk *Chunk) InitializeToAir() {
-	chunk.blocks = make([]blocks.Block, ChunkSize)
-	chunk.blockLight = make([]byte, ChunkSize)
-	chunk.skyLight = make([]byte, ChunkSize)
-}
-
 func (chunk *Chunk) Set(x, y, z int, block blocks.Block) {
 	index := chunkCoordsToIndex(x, y, z)
 	chunk.blocks[index] = block
 }
 
-type chunkObserver interface {
-	initializeChunk(chunkX, chunkZ int)
-	unloadChunk(chunkX, chunkZ int)
-	sendChunk(chunkX, chunkZ int, chunk *Chunk)
-	SendBlockChange(x, y, z int, ty blocks.BlockType, data byte)
-}
-
-func (ch *Chunk) isDataLoaded() bool {
-	return ch.blocks != nil
-}
-
-func (chunk *Chunk) addObserver(observer chunkObserver) {
-	chunk.observers = append(chunk.observers, observer)
-	observer.initializeChunk(chunk.x, chunk.z)
-	if chunk.isDataLoaded() {
-		observer.sendChunk(chunk.x, chunk.z, chunk)
-	}
-}
-
 func (chunk *Chunk) removeObserver(observer chunkObserver) {
-	for i, obs := range chunk.observers {
-		if obs == observer {
-			observer.unloadChunk(chunk.x, chunk.z)
-			chunk.observers = append(chunk.observers[:i], chunk.observers[i+1:]...)
-			break
-		}
-	}
 }
 
 func (ch *Chunk) serializeToNetwork() []byte {
@@ -87,8 +44,8 @@ func (ch *Chunk) serializeToNetwork() []byte {
 		data.WriteByte(ch.blocks[i].Data&0b00001111 | ch.blocks[i+1].Data<<4)
 	}
 
-	packToNibbleArray(ch.blockLight, data)
-	packToNibbleArray(ch.skyLight, data)
+	packToNibbleArray(ch.blockLight[:], data)
+	packToNibbleArray(ch.skyLight[:], data)
 
 	var out bytes.Buffer
 	w := zlib.NewWriter(&out)
