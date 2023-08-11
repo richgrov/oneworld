@@ -6,39 +6,25 @@ import (
 )
 
 type player struct {
-	oneworld.PlayerBase
-	server *oneworld.Server
+	oneworld.PlayerBase[*oneworld.Server]
 }
 
 func (*player) OnChat(string) {}
 
 func (player *player) OnDig(x, y, z int, finishedDestroying bool) {
-	block := player.server.GetBlock(x, y, z)
+	block := player.Server.GetBlock(x, y, z)
 	if finishedDestroying || blocks.Hardness(block.Type) == blocks.InstaBreak {
-		player.server.SetBlock(x, y, z, blocks.Block{blocks.Air, 0})
+		player.Server.SetBlock(x, y, z, blocks.Block{blocks.Air, 0})
 	}
 }
 
 func (*player) OnInteract(x, y, z, x1, y1, z1 int) {}
 
-func (player *player) OnUpdateChunkViewRange(outOfRange []oneworld.ChunkPos, inRange []oneworld.ChunkPos) {
-	for _, pos := range outOfRange {
-		if pos.X < 16 && pos.Z < 16 {
-			player.server.RemoveChunkObserver(pos.X, pos.Z, player)
-		}
-	}
-
-	for _, pos := range inRange {
-		if pos.X < 16 && pos.Z < 16 {
-			player.server.AddChunkObserver(pos.X, pos.Z, player)
-		}
-	}
-}
-
 func createPlayer(baseEntity *oneworld.EntityBase, conn *oneworld.AcceptedConnection, server *oneworld.Server) *player {
 	player := new(player)
 	base := oneworld.NewBasePlayer(
 		*baseEntity,
+		server,
 		conn,
 		16,
 		0,
@@ -46,7 +32,6 @@ func createPlayer(baseEntity *oneworld.EntityBase, conn *oneworld.AcceptedConnec
 		player,
 	)
 	player.PlayerBase = base
-	player.server = server
 	return player
 }
 

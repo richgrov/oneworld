@@ -21,18 +21,6 @@ type Server struct {
 	entities     map[int32]Entity
 	nextEntityId int32
 
-	// All the chunks on the server.
-	//
-	// If the map does not contain the key:
-	// - The chunk is not loaded AND it is not actively being loaded
-	//
-	// If the map contains the key, but chunk.isDataLoaded() is false:
-	// - The chunk is currently being loaded
-	//
-	// If the map contains the key AND chunk.isDataLoaded() is true:
-	// - The chunk along with all its data is loaded and valid
-	//
-	// The map should never contain a key pointing to nil.
 	chunks        []*Chunk
 	chunkDiameter int
 }
@@ -60,6 +48,10 @@ func NewServer(chunkDiameter int, chunks []*Chunk) (*Server, error) {
 	}
 
 	return server, nil
+}
+
+func (server *Server) ChunkDiameter() int {
+	return server.chunkDiameter
 }
 
 func (server *Server) AddEntity(entity Entity) {
@@ -108,7 +100,7 @@ func (server *Server) tickEntities() {
 	}
 }
 
-func (server *Server) AddChunkObserver(chunkX, chunkZ int, observer chunkObserver) {
+func (server *Server) addChunkObserver(chunkX, chunkZ int, observer chunkObserver) {
 	chunk := server.Chunk(chunkX, chunkZ)
 	if chunk != nil {
 		chunk.addObserver(observer)
@@ -120,7 +112,7 @@ func (server *Server) AddChunkObserver(chunkX, chunkZ int, observer chunkObserve
 	server.addChunk(chunk)
 }
 
-func (server *Server) RemoveChunkObserver(chunkX, chunkZ int, observer chunkObserver) {
+func (server *Server) removeChunkObserver(chunkX, chunkZ int, observer chunkObserver) {
 	chunk := server.Chunk(chunkX, chunkZ)
 	if chunk != nil {
 		chunk.removeObserver(observer)

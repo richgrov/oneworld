@@ -14,8 +14,9 @@ import (
 
 const packetBacklog = 32
 
-type PlayerBase struct {
+type PlayerBase[S playerServer] struct {
 	EntityBase
+	Server   S
 	Username string
 
 	biomeSeed int64
@@ -34,7 +35,13 @@ type PlayerBase struct {
 	viewDist int
 }
 
-func (player *PlayerBase) OnSpawned() {
+type playerServer interface {
+	ChunkDiameter() int
+	addChunkObserver(chunkX, chunkZ int, observer chunkObserver)
+	removeChunkObserver(chunkX, chunkZ int, observer chunkObserver)
+}
+
+func (player *PlayerBase[S]) OnSpawned() {
 	player.queuePacket(&protocol.LoginPacket{
 		ProtocolVersion: player.id,
 		MapSeed:         player.biomeSeed,
@@ -51,34 +58,31 @@ func (player *PlayerBase) OnSpawned() {
 
 	chunkX := int(math.Floor(player.x / 16))
 	chunkZ := int(math.Floor(player.z / 16))
+	maxChunk := player.Server.ChunkDiameter() - 1
 
-	viewDiameter := player.viewDist*2 + 1
-	chunksToLoad := make([]ChunkPos, 0, viewDiameter*viewDiameter)
-	for cx := util.IMax(chunkX-player.viewDist, 0); cx <= chunkX+player.viewDist; cx++ {
-		for cz := util.IMax(chunkZ-player.viewDist, 0); cz <= chunkZ+player.viewDist; cz++ {
-			chunksToLoad = append(chunksToLoad, ChunkPos{
-				X: cx,
-				Z: cz,
-			})
+	for cx := util.IMax(chunkX-player.viewDist, 0); cx <= util.IMin(chunkX+player.viewDist, maxChunk); cx++ {
+		for cz := util.IMax(chunkZ-player.viewDist, 0); cz <= util.IMin(chunkZ+player.viewDist, maxChunk); cz++ {
+			player.Server.addChunkObserver(cx, cz, player)
 		}
 	}
-	player.eventHandler.OnUpdateChunkViewRange([]ChunkPos{}, chunksToLoad)
 }
 
-func NewBasePlayer(
+func NewBasePlayer[S playerServer](
 	base EntityBase,
+	server S,
 	conn *AcceptedConnection,
 	viewDistance int,
 	biomeSeed int64,
 	dimension Dimension,
 	eventHandler PlayerEventHandler,
-) PlayerBase {
+) PlayerBase[S] {
 	if viewDistance <= 0 {
 		panic("view distance must be positive")
 	}
 
-	player := PlayerBase{
+	player := PlayerBase[S]{
 		EntityBase: base,
+		Server:     server,
 		Username:   conn.Username,
 
 		biomeSeed: biomeSeed,
@@ -100,7 +104,7 @@ func NewBasePlayer(
 	return player
 }
 
-func (player *PlayerBase) Tick() {
+func (player *PlayerBase[S]) Tick() {
 	now := time.Now()
 	if now.Sub(player.lastKeepAliveSent).Seconds() > 20 {
 		player.queuePacket(&protocol.KeepAlivePacket{})
@@ -120,7 +124,7 @@ processPackets:
 
 // Teleports the player to the speicified coordinates. Will automatically
 // load/unload chunks as needed.
-func (player *PlayerBase) Teleport(x float64, y float64, z float64) {
+func (player *PlayerBase[S]) Teleport(x float64, y float64, z float64) {
 	player.queuePacket(&protocol.SetPositionPacket{
 		X:        x,
 		Y:        y,
@@ -131,42 +135,30 @@ func (player *PlayerBase) Teleport(x float64, y float64, z float64) {
 
 	chunkX := int(math.Floor(player.x / 16))
 	chunkZ := int(math.Floor(player.z / 16))
-
 	newChunkX := int(math.Floor(x / 16))
 	newChunkZ := int(math.Floor(z / 16))
+	maxChunk := player.Server.ChunkDiameter() - 1
 
-	chunksToUnload := make([]ChunkPos, 0, player.viewDist*3)
-	for cx := util.IMax(chunkX-player.viewDist, 0); cx <= chunkX+player.viewDist; cx++ {
-		for cz := util.IMax(chunkZ-player.viewDist, 0); cz <= chunkZ+player.viewDist; cz++ {
+	for cx := util.IMax(chunkX-player.viewDist, 0); cx <= util.IMin(chunkX+player.viewDist, maxChunk); cx++ {
+		for cz := util.IMax(chunkZ-player.viewDist, 0); cz <= util.IMin(chunkZ+player.viewDist, maxChunk); cz++ {
 			canSeeChunk := util.IAbs(cx-newChunkX) <= player.viewDist && util.IAbs(cz-newChunkZ) <= player.viewDist
 			if !canSeeChunk {
-				chunksToUnload = append(chunksToUnload, ChunkPos{
-					X: cx,
-					Z: cz,
-				})
+				player.Server.removeChunkObserver(cx, cz, player)
 			}
 		}
 	}
 
-	chunksToLoad := make([]ChunkPos, 0, player.viewDist*3)
-	for cx := newChunkX - player.viewDist; cx <= newChunkX+player.viewDist; cx++ {
-		for cz := newChunkZ - player.viewDist; cz <= newChunkZ+player.viewDist; cz++ {
+	for cx := newChunkX - player.viewDist; cx <= util.IMin(newChunkX+player.viewDist, maxChunk); cx++ {
+		for cz := newChunkZ - player.viewDist; cz <= util.IMin(newChunkZ+player.viewDist, maxChunk); cz++ {
 			sawChunkBefore := util.IAbs(cx-chunkX) <= player.viewDist && util.IAbs(cz-chunkZ) <= player.viewDist
 			if !sawChunkBefore {
-				chunksToLoad = append(chunksToLoad, ChunkPos{
-					X: cx,
-					Z: cz,
-				})
+				player.Server.addChunkObserver(cx, cz, player)
 			}
 		}
-	}
-
-	if len(chunksToUnload) > 0 || len(chunksToLoad) > 0 {
-		player.eventHandler.OnUpdateChunkViewRange(chunksToUnload, chunksToLoad)
 	}
 }
 
-func (player *PlayerBase) initializeChunk(chunkX int, chunkZ int) {
+func (player *PlayerBase[S]) initializeChunk(chunkX int, chunkZ int) {
 	player.queuePacket(&protocol.PreChunkPacket{
 		ChunkX: int32(chunkX),
 		ChunkZ: int32(chunkZ),
@@ -174,7 +166,7 @@ func (player *PlayerBase) initializeChunk(chunkX int, chunkZ int) {
 	})
 }
 
-func (player *PlayerBase) unloadChunk(chunkX int, chunkZ int) {
+func (player *PlayerBase[S]) unloadChunk(chunkX int, chunkZ int) {
 	player.queuePacket(&protocol.PreChunkPacket{
 		ChunkX: int32(chunkX),
 		ChunkZ: int32(chunkZ),
@@ -182,7 +174,7 @@ func (player *PlayerBase) unloadChunk(chunkX int, chunkZ int) {
 	})
 }
 
-func (player *PlayerBase) sendChunk(chunkX int, chunkZ int, ch *Chunk) {
+func (player *PlayerBase[S]) sendChunk(chunkX int, chunkZ int, ch *Chunk) {
 	player.queuePacket(&protocol.ChunkDataPacket{
 		StartX: int32(chunkX * 16),
 		StartY: 0,
@@ -195,13 +187,13 @@ func (player *PlayerBase) sendChunk(chunkX int, chunkZ int, ch *Chunk) {
 }
 
 // Can safely be called even if Disconnect() was already called
-func (player *PlayerBase) queuePacket(packet protocol.OutboundPacket) {
+func (player *PlayerBase[S]) queuePacket(packet protocol.OutboundPacket) {
 	if !player.disconnected {
 		player.outboundPacketQueue <- packet.Marshal()
 	}
 }
 
-func (player *PlayerBase) handlePacket(packet any) {
+func (player *PlayerBase[S]) handlePacket(packet any) {
 	switch pkt := packet.(type) {
 	case *protocol.ChatPacket:
 		player.eventHandler.OnChat(pkt.Message)
@@ -235,7 +227,7 @@ func (player *PlayerBase) handlePacket(packet any) {
 	}
 }
 
-func (player *PlayerBase) readLoop() {
+func (player *PlayerBase[S]) readLoop() {
 	defer player.Disconnect()
 
 	for {
@@ -248,7 +240,7 @@ func (player *PlayerBase) readLoop() {
 	}
 }
 
-func (player *PlayerBase) writeLoop() {
+func (player *PlayerBase[S]) writeLoop() {
 	for {
 		data, ok := <-player.outboundPacketQueue
 		if !ok {
@@ -262,7 +254,7 @@ func (player *PlayerBase) writeLoop() {
 	}
 }
 
-func (player *PlayerBase) SendBlockChange(x int, y int, z int, ty blocks.BlockType, data byte) {
+func (player *PlayerBase[S]) SendBlockChange(x int, y int, z int, ty blocks.BlockType, data byte) {
 	player.queuePacket(&protocol.BlockChangePacket{
 		X:    int32(x),
 		Y:    byte(y),
@@ -272,17 +264,17 @@ func (player *PlayerBase) SendBlockChange(x int, y int, z int, ty blocks.BlockTy
 	})
 }
 
-func (player *PlayerBase) Message(message string) {
+func (player *PlayerBase[S]) Message(message string) {
 	player.queuePacket(&protocol.ChatPacket{
 		Message: message,
 	})
 }
 
-func (player *PlayerBase) GetItemInSlot(slot byte) *ItemStack {
+func (player *PlayerBase[S]) GetItemInSlot(slot byte) *ItemStack {
 	return &player.items[slot]
 }
 
-func (player *PlayerBase) SetItem(slot byte, item *ItemStack) {
+func (player *PlayerBase[S]) SetItem(slot byte, item *ItemStack) {
 	player.items[slot] = *item
 	player.queuePacket(&protocol.SetSlotPacket{
 		WindowId:  0,
@@ -294,7 +286,7 @@ func (player *PlayerBase) SetItem(slot byte, item *ItemStack) {
 }
 
 // Can safely be called more than once
-func (player *PlayerBase) Disconnect() {
+func (player *PlayerBase[S]) Disconnect() {
 	println("Disconnecting", player.Username)
 	player.conn.Close()
 
@@ -308,5 +300,4 @@ type PlayerEventHandler interface {
 	OnChat(message string)
 	OnInteract(clickedX, clickedY, clickedZ, newX, newY, newZ int)
 	OnDig(x, y, z int, finishedDestroying bool)
-	OnUpdateChunkViewRange(unload []ChunkPos, load []ChunkPos)
 }
