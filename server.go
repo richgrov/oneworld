@@ -168,7 +168,7 @@ func (server *Server) GetBlock(x, y, z int) blocks.Block {
 	}
 
 	index := chunkCoordsToIndex(x%16, y, z%16)
-	return ch.blocks[index]
+	return ch.Blocks[index]
 }
 
 func (server *Server) SetBlock(x, y, z int, block blocks.Block) bool {
@@ -181,7 +181,7 @@ func (server *Server) SetBlock(x, y, z int, block blocks.Block) bool {
 	}
 
 	index := chunkCoordsToIndex(x%16, y, z%16)
-	ch.blocks[index] = block
+	ch.Blocks[index] = block
 
 	for _, player := range server.indexedEntities(chunkX, chunkZ).observers {
 		player.SendBlockChange(x, y, z, block.Type, block.Data)
