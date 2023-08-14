@@ -71,7 +71,7 @@ func main() {
 
 	for range server.Ticker() {
 		if conn := listener.Dequeue(); conn != nil {
-			base := server.AllocateEntity(0, 80, 0)
+			base := server.AllocateEntity(0, 30, 0)
 			server.AddEntity(createPlayer(&base, conn, server))
 		}
 
