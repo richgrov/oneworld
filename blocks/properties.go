@@ -302,7 +302,7 @@ var properties = [...]blockProperties{
 	{
 		hardness: 3,
 	},
-	// PoweredRedstoneOn
+	// PoweredRedstoneOre
 	{
 		hardness: 3,
 	},

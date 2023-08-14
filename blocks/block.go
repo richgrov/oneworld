@@ -80,9 +80,9 @@ const (
 	Lever
 	StonePressurePlate
 	IronDoor
-	WoodPressurePlat
+	WoodPressurePlate
 	RedstoneOre
-	PoweredRedstoneO
+	PoweredRedstoneOre
 	RedstoneTorchOff
 	RedstoneTorchOn
 	StoneButton
