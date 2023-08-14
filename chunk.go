@@ -14,9 +14,9 @@ func chunkCoordsToIndex(x, y, z int) int {
 }
 
 type Chunk struct {
-	blocks     [ChunkSize]blocks.Block
-	blockLight [ChunkSize]byte
-	skyLight   [ChunkSize]byte
+	Blocks     [ChunkSize]blocks.Block
+	BlockLight [ChunkSize]byte
+	SkyLight   [ChunkSize]byte
 }
 
 type ChunkPos struct {
@@ -26,33 +26,33 @@ type ChunkPos struct {
 
 func (chunk *Chunk) Set(x, y, z int, block blocks.Block) {
 	index := chunkCoordsToIndex(x, y, z)
-	chunk.blocks[index] = block
+	chunk.Blocks[index] = block
 }
 
 func (chunk *Chunk) SetBlockLight(x, y, z int, level byte) {
 	index := chunkCoordsToIndex(x, y, z)
-	chunk.blockLight[index] = level
+	chunk.BlockLight[index] = level
 }
 
 func (chunk *Chunk) SetSkyLight(x, y, z int, level byte) {
 	index := chunkCoordsToIndex(x, y, z)
-	chunk.skyLight[index] = level
+	chunk.SkyLight[index] = level
 }
 
 func (ch *Chunk) serializeToNetwork() []byte {
 	capacity := 16*16*128 + 16*16*64 + 16*16*64 + 16*16*64
 	data := bytes.NewBuffer(make([]byte, 0, capacity))
 
-	for _, block := range ch.blocks {
+	for _, block := range ch.Blocks {
 		data.WriteByte(byte(block.Type))
 	}
 
-	for i := 0; i < len(ch.blocks); i += 2 {
-		data.WriteByte(ch.blocks[i].Data&0b00001111 | ch.blocks[i+1].Data<<4)
+	for i := 0; i < len(ch.Blocks); i += 2 {
+		data.WriteByte(byte(ch.Blocks[i].Data)&0b00001111 | byte(ch.Blocks[i+1].Data)<<4)
 	}
 
-	packToNibbleArray(ch.blockLight[:], data)
-	packToNibbleArray(ch.skyLight[:], data)
+	packToNibbleArray(ch.BlockLight[:], data)
+	packToNibbleArray(ch.SkyLight[:], data)
 
 	var out bytes.Buffer
 	w := zlib.NewWriter(&out)

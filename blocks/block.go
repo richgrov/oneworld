@@ -1,8 +1,9 @@
 package blocks
 
+// Zero value is air
 type Block struct {
 	Type BlockType
-	Data byte
+	Data BlockData
 }
 
 type BlockType byte
@@ -39,7 +40,7 @@ const (
 	DetectorRail
 	StickyPiston
 	Web
-	Bush
+	TallGrass
 	DeadBush
 	Piston
 	PistonHead
@@ -51,7 +52,7 @@ const (
 	RedMushroom
 	GoldBlock
 	IronBlock
-	DoubleStoneSlab
+	DoubleSlab
 	Slab
 	Bricks
 	Tnt
@@ -72,7 +73,7 @@ const (
 	Furnace
 	LitFurnace
 	StandingSign
-	Door
+	WoodenDoor
 	Ladder
 	Rail
 	StoneStairs
@@ -80,12 +81,12 @@ const (
 	Lever
 	StonePressurePlate
 	IronDoor
-	WoodPressurePlat
+	WoodPressurePlate
 	RedstoneOre
-	PoweredRedstoneO
+	PoweredRedstoneOre
 	RedstoneTorchOff
 	RedstoneTorchOn
-	StoneButton
+	Button
 	SnowLayer
 	Ice
 	Snow

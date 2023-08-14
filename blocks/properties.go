@@ -130,7 +130,7 @@ var properties = [...]blockProperties{
 	{
 		hardness: 4,
 	},
-	// Bush
+	// TallGrass
 	{
 		hardness: InstaBreak,
 	},
@@ -178,7 +178,7 @@ var properties = [...]blockProperties{
 	{
 		hardness: 5,
 	},
-	// DoubleStoneSlab
+	// DoubleSlab
 	{
 		hardness: 2,
 	},
@@ -262,7 +262,7 @@ var properties = [...]blockProperties{
 	{
 		hardness: 1,
 	},
-	// Door
+	// WoodenDoor
 	{
 		hardness: 3,
 	},
@@ -302,7 +302,7 @@ var properties = [...]blockProperties{
 	{
 		hardness: 3,
 	},
-	// PoweredRedstoneOn
+	// PoweredRedstoneOre
 	{
 		hardness: 3,
 	},
@@ -314,7 +314,7 @@ var properties = [...]blockProperties{
 	{
 		hardness: InstaBreak,
 	},
-	// StoneButton
+	// Button
 	{
 		hardness: 0.5,
 	},
@@ -396,6 +396,6 @@ var properties = [...]blockProperties{
 	},
 }
 
-func Hardness(ty BlockType) float32 {
-	return properties[ty].hardness
+func (block Block) Hardness() float32 {
+	return properties[byte(block.Type)].hardness
 }
