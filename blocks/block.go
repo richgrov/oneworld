@@ -72,7 +72,7 @@ const (
 	Furnace
 	LitFurnace
 	StandingSign
-	Door
+	WoodenDoor
 	Ladder
 	Rail
 	StoneStairs

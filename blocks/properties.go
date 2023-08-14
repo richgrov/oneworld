@@ -262,7 +262,7 @@ var properties = [...]blockProperties{
 	{
 		hardness: 1,
 	},
-	// Door
+	// WoodenDoor
 	{
 		hardness: 3,
 	},
