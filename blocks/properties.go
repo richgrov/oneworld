@@ -130,7 +130,7 @@ var properties = [...]blockProperties{
 	{
 		hardness: 4,
 	},
-	// Bush
+	// TallGrass
 	{
 		hardness: InstaBreak,
 	},

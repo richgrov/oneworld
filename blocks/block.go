@@ -39,7 +39,7 @@ const (
 	DetectorRail
 	StickyPiston
 	Web
-	Bush
+	TallGrass
 	DeadBush
 	Piston
 	PistonHead
