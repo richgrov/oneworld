@@ -257,13 +257,13 @@ func (player *PlayerBase[S]) writeLoop() {
 	}
 }
 
-func (player *PlayerBase[S]) SendBlockChange(x int, y int, z int, ty blocks.BlockType, data byte) {
+func (player *PlayerBase[S]) SendBlockChange(x int, y int, z int, block blocks.Block) {
 	player.queuePacket(&protocol.BlockChangePacket{
 		X:    int32(x),
 		Y:    byte(y),
 		Z:    int32(z),
-		Type: byte(ty),
-		Data: data,
+		Type: byte(block.Type),
+		Data: byte(block.Data),
 	})
 }
 

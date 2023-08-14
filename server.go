@@ -34,7 +34,7 @@ type chunkObserver interface {
 	initializeChunk(chunkX, chunkZ int)
 	unloadChunk(chunkX, chunkZ int)
 	sendChunk(chunkX, chunkZ int, chunk *Chunk)
-	SendBlockChange(x, y, z int, ty blocks.BlockType, data byte)
+	SendBlockChange(x, y, z int, block blocks.Block)
 }
 
 func NewServer(chunkDiameter int, chunks []*Chunk) (*Server, error) {
@@ -184,7 +184,7 @@ func (server *Server) SetBlock(x, y, z int, block blocks.Block) bool {
 	ch.Blocks[index] = block
 
 	for _, player := range server.indexedEntities(chunkX, chunkZ).observers {
-		player.SendBlockChange(x, y, z, block.Type, block.Data)
+		player.SendBlockChange(x, y, z, block)
 	}
 	return true
 }

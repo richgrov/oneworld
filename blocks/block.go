@@ -1,8 +1,9 @@
 package blocks
 
+// Zero value is air
 type Block struct {
 	Type BlockType
-	Data byte
+	Data BlockData
 }
 
 type BlockType byte
