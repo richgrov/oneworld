@@ -51,7 +51,7 @@ const (
 	RedMushroom
 	GoldBlock
 	IronBlock
-	DoubleStoneSlab
+	DoubleSlab
 	Slab
 	Bricks
 	Tnt

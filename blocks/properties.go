@@ -178,7 +178,7 @@ var properties = [...]blockProperties{
 	{
 		hardness: 5,
 	},
-	// DoubleStoneSlab
+	// DoubleSlab
 	{
 		hardness: 2,
 	},
