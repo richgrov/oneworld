@@ -53,8 +53,13 @@ func main() {
 				chunk.Set(x, 10, z, blocks.Block{
 					Type: blocks.Stone,
 				})
+
+				for y := 0; y < 128; y++ {
+					chunk.SetSkyLight(x, y, z, 15)
+				}
 			}
 		}
+
 		chunks[i] = chunk
 	}
 
