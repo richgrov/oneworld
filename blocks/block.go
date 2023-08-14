@@ -85,7 +85,7 @@ const (
 	PoweredRedstoneOre
 	RedstoneTorchOff
 	RedstoneTorchOn
-	StoneButton
+	Button
 	SnowLayer
 	Ice
 	Snow

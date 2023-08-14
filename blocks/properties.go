@@ -314,7 +314,7 @@ var properties = [...]blockProperties{
 	{
 		hardness: InstaBreak,
 	},
-	// StoneButton
+	// Button
 	{
 		hardness: 0.5,
 	},
