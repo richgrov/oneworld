@@ -396,6 +396,6 @@ var properties = [...]blockProperties{
 	},
 }
 
-func Hardness(ty BlockType) float32 {
-	return properties[ty].hardness
+func (block Block) Hardness() float32 {
+	return properties[byte(block.Type)].hardness
 }
